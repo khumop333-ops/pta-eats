@@ -1,34 +1,5 @@
 import RestaurantCard from "./RestaurantCard";
-import restaurant1 from "@/assets/restaurant-1.jpg";
-import restaurant2 from "@/assets/restaurant-2.jpg";
-import restaurant3 from "@/assets/restaurant-3.jpg";
-
-const restaurants = [
-  {
-    id: 1,
-    name: "Tshwane Kitchen",
-    cuisine: "Traditional South African",
-    rating: 4.5,
-    image: restaurant1,
-    deliveryTime: "25–35 min",
-  },
-  {
-    id: 2,
-    name: "Church Street Eats",
-    cuisine: "Street Food & Grills",
-    rating: 4.3,
-    image: restaurant2,
-    deliveryTime: "20–30 min",
-  },
-  {
-    id: 3,
-    name: "Sunnyside Spices",
-    cuisine: "Indian & African Fusion",
-    rating: 4.7,
-    image: restaurant3,
-    deliveryTime: "30–40 min",
-  },
-];
+import { restaurants } from "@/data/restaurants";
 
 const FeaturedRestaurants = () => {
   return (
