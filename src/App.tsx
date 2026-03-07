@@ -11,6 +11,7 @@ import RestaurantPage from "./pages/RestaurantPage";
 import Checkout from "./pages/Checkout";
 import OrderConfirmation from "./pages/OrderConfirmation";
 import AuthPage from "./pages/AuthPage";
+import MyOrders from "./pages/MyOrders";
 import AdminLogin from "./pages/AdminLogin";
 import AdminDashboard from "./pages/AdminDashboard";
 import NotFound from "./pages/NotFound";

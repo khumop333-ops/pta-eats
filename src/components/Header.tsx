@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { UtensilsCrossed, LogOut, User } from "lucide-react";
+import { UtensilsCrossed, LogOut, User, ClipboardList } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
 const Header = () => {
