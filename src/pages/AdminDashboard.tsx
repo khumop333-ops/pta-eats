@@ -84,7 +84,23 @@ const AdminDashboard = () => {
   };
 
   useEffect(() => {
-    if (isAuthenticated) fetchOrders();
+    if (!isAuthenticated) return;
+    fetchOrders();
+
+    const channel = supabase
+      .channel("admin-orders")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "orders" },
+        () => {
+          fetchOrders();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [isAuthenticated]);
 
   const updateStatus = async (orderId: string, newStatus: string) => {
