@@ -82,6 +82,7 @@ const Checkout = () => {
         delivery_fee: DELIVERY_FEE,
         total,
         status: "New",
+        user_id: user!.id,
       })
       .select()
       .single();
