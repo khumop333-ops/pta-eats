@@ -1,12 +1,20 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+import Header from "@/components/Header";
+import HeroSection from "@/components/HeroSection";
+import FeaturedRestaurants from "@/components/FeaturedRestaurants";
 
 const Index = () => {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <div className="text-center">
-        <h1 className="mb-4 text-4xl font-bold">Welcome to Your Blank App</h1>
-        <p className="text-xl text-muted-foreground">Start building your amazing project here!</p>
-      </div>
+    <div className="min-h-screen bg-background">
+      <Header />
+      <main>
+        <HeroSection />
+        <FeaturedRestaurants />
+      </main>
+      <footer className="border-t bg-card py-8">
+        <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
+          © 2026 Pretoria Eats. Delivering local favourites in Pretoria Central.
+        </div>
+      </footer>
     </div>
   );
 };
