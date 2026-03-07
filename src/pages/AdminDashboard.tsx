@@ -4,6 +4,7 @@ import { useAdminAuth } from "@/context/AdminAuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -14,6 +15,7 @@ import {
 } from "@/components/ui/table";
 import { UtensilsCrossed, LogOut, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
+import RestaurantManager from "@/components/admin/RestaurantManager";
 
 interface OrderItem {
   id: string;
@@ -68,7 +70,6 @@ const AdminDashboard = () => {
       return;
     }
 
-    // Fetch items for each order
     const ordersWithItems: Order[] = await Promise.all(
       (ordersData || []).map(async (order) => {
         const { data: items } = await supabase
@@ -92,15 +93,11 @@ const AdminDashboard = () => {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "orders" },
-        () => {
-          fetchOrders();
-        }
+        () => { fetchOrders(); }
       )
       .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, [isAuthenticated]);
 
   const updateStatus = async (orderId: string, newStatus: string) => {
@@ -123,7 +120,6 @@ const AdminDashboard = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
       <header className="sticky top-0 z-50 border-b bg-card/80 backdrop-blur-md">
         <div className="container mx-auto flex h-16 items-center justify-between px-4">
           <div className="flex items-center gap-2">
@@ -139,10 +135,7 @@ const AdminDashboard = () => {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => {
-                logout();
-                navigate("/admin/login");
-              }}
+              onClick={() => { logout(); navigate("/admin/login"); }}
             >
               <LogOut className="mr-1 h-4 w-4" /> Sign Out
             </Button>
@@ -151,88 +144,78 @@ const AdminDashboard = () => {
       </header>
 
       <main className="container mx-auto px-4 py-8">
-        <h1 className="font-display text-3xl font-bold text-foreground mb-6">
-          Orders
-        </h1>
+        <Tabs defaultValue="orders">
+          <TabsList className="mb-6">
+            <TabsTrigger value="orders">Orders</TabsTrigger>
+            <TabsTrigger value="restaurants">Restaurants & Menus</TabsTrigger>
+          </TabsList>
 
-        {loading ? (
-          <p className="text-muted-foreground">Loading orders...</p>
-        ) : orders.length === 0 ? (
-          <div className="rounded-lg border bg-card p-12 text-center">
-            <p className="text-lg text-muted-foreground">No orders yet.</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Orders placed by customers will appear here.
-            </p>
-          </div>
-        ) : (
-          <div className="rounded-lg border bg-card overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Order ID</TableHead>
-                  <TableHead>Customer</TableHead>
-                  <TableHead>Items</TableHead>
-                  <TableHead>Total</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Time</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {orders.map((order) => (
-                  <TableRow key={order.id}>
-                    <TableCell className="font-mono text-xs">
-                      {order.id.slice(0, 8)}…
-                    </TableCell>
-                    <TableCell>
-                      <div>
-                        <p className="font-medium">{order.customer_name}</p>
-                        <p className="text-xs text-muted-foreground">{order.phone_number}</p>
-                      </div>
-                    </TableCell>
-                    <TableCell className="max-w-[200px]">
-                      <p className="text-sm truncate">
-                        {order.order_items
-                          .map((i) => `${i.quantity}× ${i.item_name}`)
-                          .join(", ")}
-                      </p>
-                    </TableCell>
-                    <TableCell className="font-semibold">
-                      R {Number(order.total).toFixed(2)}
-                    </TableCell>
-                    <TableCell>
-                      <Badge className={statusColors[order.status] || ""} variant="secondary">
-                        {order.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {new Date(order.created_at).toLocaleString("en-ZA")}
-                    </TableCell>
-                    <TableCell className="text-right space-x-2">
-                      {order.status === "New" && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => updateStatus(order.id, "Accepted")}
-                        >
-                          Accept
-                        </Button>
-                      )}
-                      {(order.status === "New" || order.status === "Accepted") && (
-                        <Button
-                          size="sm"
-                          onClick={() => updateStatus(order.id, "Ready for Pickup/Delivery")}
-                        >
-                          Ready
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
+          <TabsContent value="orders">
+            <h1 className="font-display text-3xl font-bold text-foreground mb-6">Orders</h1>
+            {loading ? (
+              <p className="text-muted-foreground">Loading orders...</p>
+            ) : orders.length === 0 ? (
+              <div className="rounded-lg border bg-card p-12 text-center">
+                <p className="text-lg text-muted-foreground">No orders yet.</p>
+                <p className="mt-1 text-sm text-muted-foreground">Orders placed by customers will appear here.</p>
+              </div>
+            ) : (
+              <div className="rounded-lg border bg-card overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Order ID</TableHead>
+                      <TableHead>Customer</TableHead>
+                      <TableHead>Items</TableHead>
+                      <TableHead>Total</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Time</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {orders.map((order) => (
+                      <TableRow key={order.id}>
+                        <TableCell className="font-mono text-xs">{order.id.slice(0, 8)}…</TableCell>
+                        <TableCell>
+                          <div>
+                            <p className="font-medium">{order.customer_name}</p>
+                            <p className="text-xs text-muted-foreground">{order.phone_number}</p>
+                          </div>
+                        </TableCell>
+                        <TableCell className="max-w-[200px]">
+                          <p className="text-sm truncate">
+                            {order.order_items.map((i) => `${i.quantity}× ${i.item_name}`).join(", ")}
+                          </p>
+                        </TableCell>
+                        <TableCell className="font-semibold">R {Number(order.total).toFixed(2)}</TableCell>
+                        <TableCell>
+                          <Badge className={statusColors[order.status] || ""} variant="secondary">{order.status}</Badge>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {new Date(order.created_at).toLocaleString("en-ZA")}
+                        </TableCell>
+                        <TableCell className="text-right space-x-2">
+                          {order.status === "New" && (
+                            <Button size="sm" variant="outline" onClick={() => updateStatus(order.id, "Accepted")}>Accept</Button>
+                          )}
+                          {(order.status === "New" || order.status === "Accepted") && (
+                            <Button size="sm" onClick={() => updateStatus(order.id, "Ready for Pickup/Delivery")}>Ready</Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="restaurants">
+            <h1 className="font-display text-3xl font-bold text-foreground mb-6">Restaurants & Menus</h1>
+            <RestaurantManager />
+          </TabsContent>
+        </Tabs>
       </main>
     </div>
   );

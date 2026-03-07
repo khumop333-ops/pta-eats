@@ -14,6 +14,47 @@ export type Database = {
   }
   public: {
     Tables: {
+      menu_items: {
+        Row: {
+          category: string
+          created_at: string
+          description: string
+          id: string
+          name: string
+          price: number
+          restaurant_id: number
+          updated_at: string
+        }
+        Insert: {
+          category?: string
+          created_at?: string
+          description?: string
+          id?: string
+          name: string
+          price: number
+          restaurant_id: number
+          updated_at?: string
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          description?: string
+          id?: string
+          name?: string
+          price?: number
+          restaurant_id?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "menu_items_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       order_items: {
         Row: {
           created_at: string
@@ -120,6 +161,39 @@ export type Database = {
           full_name?: string | null
           id?: string
           phone_number?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      restaurants: {
+        Row: {
+          created_at: string
+          cuisine: string
+          delivery_time: string
+          id: number
+          image_url: string
+          name: string
+          rating: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          cuisine: string
+          delivery_time?: string
+          id?: number
+          image_url?: string
+          name: string
+          rating?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          cuisine?: string
+          delivery_time?: string
+          id?: number
+          image_url?: string
+          name?: string
+          rating?: number
           updated_at?: string
         }
         Relationships: []

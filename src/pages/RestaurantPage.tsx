@@ -1,13 +1,31 @@
 import { useParams, Link } from "react-router-dom";
+import { useEffect, useState } from "react";
 import { ArrowLeft, Star, Clock } from "lucide-react";
 import Header from "@/components/Header";
 import MenuItemCard from "@/components/MenuItemCard";
 import CartSidebar from "@/components/CartSidebar";
-import { getRestaurantById } from "@/data/restaurants";
+import { fetchRestaurantById, type Restaurant } from "@/data/restaurants";
 
 const RestaurantPage = () => {
   const { id } = useParams();
-  const restaurant = getRestaurantById(Number(id));
+  const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchRestaurantById(Number(id)).then((data) => {
+      setRestaurant(data);
+      setLoading(false);
+    });
+  }, [id]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <div className="container mx-auto py-24 text-center text-muted-foreground">Loading...</div>
+      </div>
+    );
+  }
 
   if (!restaurant) {
     return (
@@ -28,7 +46,6 @@ const RestaurantPage = () => {
       <Header />
       <div className="flex">
         <main className="flex-1">
-          {/* Cover */}
           <div className="relative h-56 overflow-hidden md:h-72">
             <img src={restaurant.image} alt={restaurant.name} className="h-full w-full object-cover" />
             <div className="hero-overlay absolute inset-0" />
@@ -51,7 +68,6 @@ const RestaurantPage = () => {
             </div>
           </div>
 
-          {/* Menu */}
           <div className="container mx-auto px-4 py-8">
             {categories.map((category) => (
               <section key={category} className="mb-10">
@@ -67,8 +83,6 @@ const RestaurantPage = () => {
             ))}
           </div>
         </main>
-
-        {/* Cart sidebar — visible on desktop, floating button on mobile */}
         <CartSidebar />
       </div>
     </div>
