@@ -14,7 +14,89 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      order_items: {
+        Row: {
+          created_at: string
+          id: string
+          item_name: string
+          item_price: number
+          order_id: string
+          quantity: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          item_name: string
+          item_price: number
+          order_id: string
+          quantity?: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          item_name?: string
+          item_price?: number
+          order_id?: string
+          quantity?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_items_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      orders: {
+        Row: {
+          created_at: string
+          customer_name: string
+          delivery_address: string
+          delivery_fee: number
+          id: string
+          phone_number: string
+          restaurant_id: number
+          restaurant_name: string
+          special_instructions: string | null
+          status: string
+          subtotal: number
+          total: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          customer_name: string
+          delivery_address: string
+          delivery_fee?: number
+          id?: string
+          phone_number: string
+          restaurant_id: number
+          restaurant_name: string
+          special_instructions?: string | null
+          status?: string
+          subtotal: number
+          total: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          customer_name?: string
+          delivery_address?: string
+          delivery_fee?: number
+          id?: string
+          phone_number?: string
+          restaurant_id?: number
+          restaurant_name?: string
+          special_instructions?: string | null
+          status?: string
+          subtotal?: number
+          total?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
