@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCart } from "@/context/CartContext";
+import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import Header from "@/components/Header";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,7 @@ const DELIVERY_FEE = 15;
 
 const Checkout = () => {
   const { items, subtotal, clearCart } = useCart();
+  const { user, profile } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
@@ -23,6 +25,25 @@ const Checkout = () => {
     address: "",
     instructions: "",
   });
+
+  // Redirect to auth if not logged in
+  useEffect(() => {
+    if (!user) {
+      toast.error("Please sign in to checkout");
+      navigate("/auth");
+    }
+  }, [user, navigate]);
+
+  // Pre-fill from profile
+  useEffect(() => {
+    if (profile) {
+      setForm((prev) => ({
+        ...prev,
+        fullName: profile.full_name || prev.fullName,
+        phone: profile.phone_number || prev.phone,
+      }));
+    }
+  }, [profile]);
 
   const total = subtotal + DELIVERY_FEE;
 

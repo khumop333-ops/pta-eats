@@ -1,8 +1,17 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { UtensilsCrossed } from "lucide-react";
+import { UtensilsCrossed, LogOut, User } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
 
 const Header = () => {
+  const { user, profile, signOut } = useAuth();
+  const navigate = useNavigate();
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate("/");
+  };
+
   return (
     <header className="sticky top-0 z-50 border-b bg-card/80 backdrop-blur-md">
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
@@ -14,9 +23,21 @@ const Header = () => {
         </Link>
 
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm">
-            Login
-          </Button>
+          {user ? (
+            <>
+              <span className="hidden sm:inline text-sm text-muted-foreground">
+                <User className="inline h-4 w-4 mr-1" />
+                {profile?.full_name || user.email}
+              </span>
+              <Button variant="ghost" size="sm" onClick={handleSignOut}>
+                <LogOut className="h-4 w-4 mr-1" /> Sign Out
+              </Button>
+            </>
+          ) : (
+            <Button variant="ghost" size="sm" asChild>
+              <Link to="/auth">Login</Link>
+            </Button>
+          )}
           <Button variant="outline" size="sm" asChild>
             <Link to="/admin/login">Restaurant Login</Link>
           </Button>
