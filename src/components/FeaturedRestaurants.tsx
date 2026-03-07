@@ -1,7 +1,18 @@
+import { useEffect, useState } from "react";
 import RestaurantCard from "./RestaurantCard";
-import { restaurants } from "@/data/restaurants";
+import { fetchRestaurants, type Restaurant } from "@/data/restaurants";
 
 const FeaturedRestaurants = () => {
+  const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchRestaurants().then((data) => {
+      setRestaurants(data);
+      setLoading(false);
+    });
+  }, []);
+
   return (
     <section className="container mx-auto px-4 py-16">
       <div className="mb-8">
@@ -13,11 +24,15 @@ const FeaturedRestaurants = () => {
         </p>
       </div>
 
-      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-        {restaurants.map((r) => (
-          <RestaurantCard key={r.id} {...r} />
-        ))}
-      </div>
+      {loading ? (
+        <p className="text-muted-foreground">Loading restaurants...</p>
+      ) : (
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          {restaurants.map((r) => (
+            <RestaurantCard key={r.id} {...r} />
+          ))}
+        </div>
+      )}
     </section>
   );
 };
