@@ -16,6 +16,7 @@ import {
 import { UtensilsCrossed, LogOut, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import RestaurantManager from "@/components/admin/RestaurantManager";
+import DelivererManager from "@/components/admin/DelivererManager";
 
 interface OrderItem {
   id: string;
@@ -148,6 +149,7 @@ const AdminDashboard = () => {
           <TabsList className="mb-6">
             <TabsTrigger value="orders">Orders</TabsTrigger>
             <TabsTrigger value="restaurants">Restaurants & Menus</TabsTrigger>
+            <TabsTrigger value="deliverers">Deliverers</TabsTrigger>
           </TabsList>
 
           <TabsContent value="orders">
@@ -214,6 +216,11 @@ const AdminDashboard = () => {
           <TabsContent value="restaurants">
             <h1 className="font-display text-3xl font-bold text-foreground mb-6">Restaurants & Menus</h1>
             <RestaurantManager />
+          </TabsContent>
+
+          <TabsContent value="deliverers">
+            <h1 className="font-display text-3xl font-bold text-foreground mb-6">Deliverers</h1>
+            <DelivererManager />
           </TabsContent>
         </Tabs>
       </main>
