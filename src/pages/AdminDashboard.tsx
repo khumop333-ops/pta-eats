@@ -16,6 +16,7 @@ import {
 import { UtensilsCrossed, LogOut, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import RestaurantManager from "@/components/admin/RestaurantManager";
+import DelivererManager from "@/components/admin/DelivererManager";
 
 interface OrderItem {
   id: string;
