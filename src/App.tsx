@@ -38,6 +38,8 @@ const App = () => (
                 <Route path="/my-orders" element={<MyOrders />} />
                 <Route path="/admin/login" element={<AdminLogin />} />
                 <Route path="/admin" element={<AdminDashboard />} />
+                <Route path="/deliverer/login" element={<DelivererLogin />} />
+                <Route path="/deliverer" element={<DelivererDashboard />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </BrowserRouter>
