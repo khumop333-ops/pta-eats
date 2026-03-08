@@ -14,6 +14,8 @@ import AuthPage from "./pages/AuthPage";
 import MyOrders from "./pages/MyOrders";
 import AdminLogin from "./pages/AdminLogin";
 import AdminDashboard from "./pages/AdminDashboard";
+import DelivererLogin from "./pages/DelivererLogin";
+import DelivererDashboard from "./pages/DelivererDashboard";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
