@@ -149,6 +149,7 @@ const AdminDashboard = () => {
           <TabsList className="mb-6">
             <TabsTrigger value="orders">Orders</TabsTrigger>
             <TabsTrigger value="restaurants">Restaurants & Menus</TabsTrigger>
+            <TabsTrigger value="deliverers">Deliverers</TabsTrigger>
           </TabsList>
 
           <TabsContent value="orders">
