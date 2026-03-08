@@ -46,6 +46,11 @@ const Header = () => {
           <Button variant="outline" size="sm" asChild>
             <Link to="/admin/login">Restaurant Login</Link>
           </Button>
+          <Button variant="ghost" size="sm" asChild>
+            <Link to="/deliverer/login">
+              <Truck className="h-4 w-4 mr-1" /> Deliverer
+            </Link>
+          </Button>
         </div>
       </div>
     </header>
