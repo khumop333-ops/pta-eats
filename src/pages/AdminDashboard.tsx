@@ -217,6 +217,14 @@ const AdminDashboard = () => {
             <h1 className="font-display text-3xl font-bold text-foreground mb-6">Restaurants & Menus</h1>
             <RestaurantManager />
           </TabsContent>
+
+          <TabsContent value="deliverers">
+            <h1 className="font-display text-3xl font-bold text-foreground mb-6">Deliverers</h1>
+            <DelivererManager />
+          </TabsContent>
+        </Tabs>
+            <RestaurantManager />
+          </TabsContent>
         </Tabs>
       </main>
     </div>
