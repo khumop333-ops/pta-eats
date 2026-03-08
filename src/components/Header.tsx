@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { UtensilsCrossed, LogOut, User, ClipboardList } from "lucide-react";
+import { UtensilsCrossed, LogOut, User, ClipboardList, Truck } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
 const Header = () => {
@@ -45,6 +45,11 @@ const Header = () => {
           )}
           <Button variant="outline" size="sm" asChild>
             <Link to="/admin/login">Restaurant Login</Link>
+          </Button>
+          <Button variant="ghost" size="sm" asChild>
+            <Link to="/deliverer/login">
+              <Truck className="h-4 w-4 mr-1" /> Deliverer
+            </Link>
           </Button>
         </div>
       </div>
