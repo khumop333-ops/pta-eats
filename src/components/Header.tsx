@@ -44,7 +44,7 @@ const Header = () => {
             </Button>
           )}
           <Button variant="outline" size="sm" asChild>
-            <Link to="/admin/login">Restaurant Login</Link>
+            <Link to="/owner/login">Restaurant Login</Link>
           </Button>
           <Button variant="ghost" size="sm" asChild>
             <Link to="/deliverer/login">
