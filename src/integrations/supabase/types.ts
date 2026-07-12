@@ -176,6 +176,7 @@ export type Database = {
           id: number
           image_url: string
           name: string
+          owner_id: string | null
           rating: number
           updated_at: string
         }
@@ -186,6 +187,7 @@ export type Database = {
           id?: number
           image_url?: string
           name: string
+          owner_id?: string | null
           rating?: number
           updated_at?: string
         }
@@ -196,6 +198,7 @@ export type Database = {
           id?: number
           image_url?: string
           name?: string
+          owner_id?: string | null
           rating?: number
           updated_at?: string
         }
@@ -234,9 +237,13 @@ export type Database = {
         }
         Returns: boolean
       }
+      owns_restaurant: {
+        Args: { _restaurant_id: number; _user_id: string }
+        Returns: boolean
+      }
     }
     Enums: {
-      app_role: "admin" | "deliverer" | "user"
+      app_role: "admin" | "deliverer" | "user" | "restaurant_owner"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -364,7 +371,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["admin", "deliverer", "user"],
+      app_role: ["admin", "deliverer", "user", "restaurant_owner"],
     },
   },
 } as const

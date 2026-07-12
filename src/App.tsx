@@ -16,6 +16,8 @@ import AdminLogin from "./pages/AdminLogin";
 import AdminDashboard from "./pages/AdminDashboard";
 import DelivererLogin from "./pages/DelivererLogin";
 import DelivererDashboard from "./pages/DelivererDashboard";
+import OwnerLogin from "./pages/OwnerLogin";
+import OwnerDashboard from "./pages/OwnerDashboard";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -40,6 +42,8 @@ const App = () => (
                 <Route path="/admin" element={<AdminDashboard />} />
                 <Route path="/deliverer/login" element={<DelivererLogin />} />
                 <Route path="/deliverer" element={<DelivererDashboard />} />
+                <Route path="/owner/login" element={<OwnerLogin />} />
+                <Route path="/owner" element={<OwnerDashboard />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </BrowserRouter>

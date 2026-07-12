@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Trash2, Pencil, Plus, ChevronDown, ChevronUp, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import MenuItemManager from "./MenuItemManager";
+import RestaurantOwnerAssign from "./RestaurantOwnerAssign";
 
 interface Restaurant {
   id: number;
@@ -14,6 +15,7 @@ interface Restaurant {
   rating: number;
   image_url: string;
   delivery_time: string;
+  owner_id: string | null;
 }
 
 const emptyForm = { name: "", cuisine: "", rating: "4.0", image_url: "", delivery_time: "30-40 min" };
@@ -221,14 +223,19 @@ const RestaurantManager = () => {
                     <img src={r.image_url} alt={r.name} className="h-10 w-10 rounded-md object-cover" />
                   )}
                   <div>
-                    <p className="font-semibold text-foreground">{r.name}</p>
+                    <p className="font-semibold text-foreground">
+                      {r.name}
+                      {r.owner_id && (
+                        <span className="ml-2 text-xs font-normal text-primary">• owner assigned</span>
+                      )}
+                    </p>
                     <p className="text-sm text-muted-foreground">{r.cuisine} · ⭐ {r.rating} · {r.delivery_time}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
                   <Button variant="ghost" size="sm" onClick={() => setExpandedId(expandedId === r.id ? null : r.id)}>
                     {expandedId === r.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                    Menu
+                    Manage
                   </Button>
                   <Button variant="ghost" size="icon" onClick={() => handleEdit(r)}>
                     <Pencil className="h-4 w-4" />
@@ -239,7 +246,13 @@ const RestaurantManager = () => {
                 </div>
               </div>
               {expandedId === r.id && (
-                <div className="border-t p-4">
+                <div className="border-t p-4 space-y-4">
+                  <RestaurantOwnerAssign
+                    restaurantId={r.id}
+                    restaurantName={r.name}
+                    currentOwnerId={r.owner_id}
+                    onAssigned={fetchAll}
+                  />
                   <MenuItemManager restaurantId={r.id} />
                 </div>
               )}
