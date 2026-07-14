@@ -1,5 +1,10 @@
-import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors'
 import { createClient } from 'npm:@supabase/supabase-js@2'
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-admin-secret',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -37,7 +42,6 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     )
 
-    // Create confirmed user (no email verification required)
     const { data: created, error: createErr } = await admin.auth.admin.createUser({
       email,
       password,
@@ -54,7 +58,6 @@ Deno.serve(async (req) => {
 
     const userId = created.user.id
 
-    // Assign role
     const { error: roleErr } = await admin
       .from('user_roles')
       .insert({ user_id: userId, role })
@@ -66,7 +69,6 @@ Deno.serve(async (req) => {
       })
     }
 
-    // If restaurant_owner, link user to restaurant
     if (role === 'restaurant_owner' && typeof restaurant_id === 'number') {
       const { error: updErr } = await admin
         .from('restaurants')
