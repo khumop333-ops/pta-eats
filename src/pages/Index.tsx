@@ -12,7 +12,7 @@ const Index = () => {
       </main>
       <footer className="border-t bg-card py-8">
         <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
-          © 2026 Pretoria Eats. Delivering local favourites in Pretoria Central.
+          © 2026 Roma. Delivering local favourites in Pretoria Central.
         </div>
       </footer>
     </div>

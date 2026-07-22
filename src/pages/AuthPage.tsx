@@ -66,8 +66,8 @@ const AuthPage = () => {
             </CardTitle>
             <CardDescription>
               {isSignUp
-                ? "Join Pretoria Eats to order delicious food"
-                : "Welcome back to Pretoria Eats"}
+                ? "Join Roma to order delicious food"
+                : "Welcome back to Roma"}
             </CardDescription>
           </CardHeader>
           <CardContent>
