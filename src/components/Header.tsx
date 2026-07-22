@@ -17,7 +17,11 @@ const Header = () => {
     <header className="sticky top-0 z-50 border-b bg-card/80 backdrop-blur-md">
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
         <Link to="/" className="flex items-center gap-2">
-          <UtensilsCrossed className="h-7 w-7 text-primary" />
+          <img
+            src={logo.url}
+            alt="Roma"
+            className="h-10 w-auto rounded-xl"
+          />
           <span className="font-display text-xl font-bold text-foreground">
             Roma
           </span>
