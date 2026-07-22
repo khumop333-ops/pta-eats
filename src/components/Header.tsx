@@ -17,7 +17,7 @@ const Header = () => {
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
         <Link to="/" className="flex items-center gap-2">
           <img
-            src={logo.url}
+            src="/roma-logo.jpg"
             alt="Roma"
             className="h-10 w-auto rounded-xl"
           />
