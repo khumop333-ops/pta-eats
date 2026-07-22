@@ -2,7 +2,6 @@ import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { LogOut, User, ClipboardList, Truck } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
-import logo from "@/assets/roma-logo.jpg.asset.json";
 
 const Header = () => {
   const { user, profile, signOut } = useAuth();
