@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { FunctionsHttpError } from "@supabase/supabase-js";
 import Header from "@/components/Header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,21 +11,27 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { CreditCard, Banknote } from "lucide-react";
 import { toast } from "sonner";
 
 const DELIVERY_FEE = 15;
+
+type PaymentMethod = "card" | "cash";
 
 const Checkout = () => {
   const { items, subtotal, clearCart } = useCart();
   const { user, profile } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("card");
   const [form, setForm] = useState({
     fullName: "",
     phone: "",
     address: "",
     instructions: "",
   });
+
 
   // Redirect to auth if not logged in
   useEffect(() => {
@@ -83,6 +90,8 @@ const Checkout = () => {
         total,
         status: "New",
         user_id: user!.id,
+        payment_method: paymentMethod,
+        payment_status: "pending",
       })
       .select()
       .single();
@@ -109,9 +118,30 @@ const Checkout = () => {
       return;
     }
 
+    if (paymentMethod === "card") {
+      const { data, error } = await supabase.functions.invoke("create-ikhokha-payment", {
+        body: { orderId: order.id, returnOrigin: window.location.origin },
+      });
+
+      if (error) {
+        const details =
+          error instanceof FunctionsHttpError ? await error.context.text() : error.message;
+        console.error("create-ikhokha-payment failed:", details);
+        toast.error("Could not start card payment. Your order was saved — you can pay cash on delivery.");
+        clearCart();
+        navigate(`/order-confirmation/${order.id}?payment=failed`);
+        return;
+      }
+
+      clearCart();
+      window.location.href = (data as { paylinkUrl: string }).paylinkUrl;
+      return;
+    }
+
     clearCart();
     navigate(`/order-confirmation/${order.id}`);
   };
+
 
   return (
     <div className="min-h-screen bg-background">
@@ -199,6 +229,53 @@ const Checkout = () => {
 
               <Separator />
 
+              <div className="space-y-2">
+                <Label>Payment Method</Label>
+                <RadioGroup
+                  value={paymentMethod}
+                  onValueChange={(v) => setPaymentMethod(v as PaymentMethod)}
+                  className="gap-2"
+                >
+                  <label
+                    htmlFor="pay-card"
+                    className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors ${
+                      paymentMethod === "card" ? "border-primary bg-primary/5" : "hover:bg-muted/50"
+                    }`}
+                  >
+                    <RadioGroupItem value="card" id="pay-card" className="mt-1" />
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                        <CreditCard className="h-4 w-4" />
+                        Pay by Card
+                      </div>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        Secure card payment via iKhokha
+                      </p>
+                    </div>
+                  </label>
+
+                  <label
+                    htmlFor="pay-cash"
+                    className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors ${
+                      paymentMethod === "cash" ? "border-primary bg-primary/5" : "hover:bg-muted/50"
+                    }`}
+                  >
+                    <RadioGroupItem value="cash" id="pay-cash" className="mt-1" />
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                        <Banknote className="h-4 w-4" />
+                        Cash on Delivery
+                      </div>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        Pay the driver in cash when your food arrives
+                      </p>
+                    </div>
+                  </label>
+                </RadioGroup>
+              </div>
+
+              <Separator />
+
               <div className="flex justify-between text-lg font-bold">
                 <span>Total</span>
                 <span>R {total.toFixed(2)}</span>
@@ -211,8 +288,15 @@ const Checkout = () => {
                 size="lg"
                 disabled={loading}
               >
-                {loading ? "Placing Order..." : "Place Order"}
+                {loading
+                  ? paymentMethod === "card"
+                    ? "Redirecting to payment…"
+                    : "Placing Order..."
+                  : paymentMethod === "card"
+                    ? `Pay R ${total.toFixed(2)}`
+                    : "Place Order"}
               </Button>
+
             </CardContent>
           </Card>
         </div>

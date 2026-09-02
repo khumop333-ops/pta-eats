@@ -21,6 +21,9 @@ interface Order {
   delivery_fee: number;
   total: number;
   status: string;
+  payment_method: string;
+  payment_status: string;
+
   created_at: string;
   delivery_address: string;
   order_items: OrderItem[];
@@ -137,9 +140,32 @@ const MyOrders = () => {
                         <span>Delivery fee</span>
                         <span>R {Number(order.delivery_fee).toFixed(2)}</span>
                       </div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">
+                          {order.payment_method === "cash" ? "Cash on delivery" : "Card payment"}
+                        </span>
+                        <span
+                          className={
+                            order.payment_status === "paid"
+                              ? "font-medium text-green-700"
+                              : order.payment_status === "failed"
+                                ? "font-medium text-destructive"
+                                : "text-muted-foreground"
+                          }
+                        >
+                          {order.payment_status === "paid"
+                            ? "Paid"
+                            : order.payment_status === "failed"
+                              ? "Payment failed"
+                              : order.payment_method === "cash"
+                                ? "Pay on delivery"
+                                : "Awaiting payment"}
+                        </span>
+                      </div>
                       <p className="text-xs text-muted-foreground">📍 {order.delivery_address}</p>
                     </div>
                   )}
+
                 </div>
               );
             })}
