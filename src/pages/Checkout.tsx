@@ -229,6 +229,53 @@ const Checkout = () => {
 
               <Separator />
 
+              <div className="space-y-2">
+                <Label>Payment Method</Label>
+                <RadioGroup
+                  value={paymentMethod}
+                  onValueChange={(v) => setPaymentMethod(v as PaymentMethod)}
+                  className="gap-2"
+                >
+                  <label
+                    htmlFor="pay-card"
+                    className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors ${
+                      paymentMethod === "card" ? "border-primary bg-primary/5" : "hover:bg-muted/50"
+                    }`}
+                  >
+                    <RadioGroupItem value="card" id="pay-card" className="mt-1" />
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                        <CreditCard className="h-4 w-4" />
+                        Pay by Card
+                      </div>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        Secure card payment via iKhokha
+                      </p>
+                    </div>
+                  </label>
+
+                  <label
+                    htmlFor="pay-cash"
+                    className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors ${
+                      paymentMethod === "cash" ? "border-primary bg-primary/5" : "hover:bg-muted/50"
+                    }`}
+                  >
+                    <RadioGroupItem value="cash" id="pay-cash" className="mt-1" />
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                        <Banknote className="h-4 w-4" />
+                        Cash on Delivery
+                      </div>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        Pay the driver in cash when your food arrives
+                      </p>
+                    </div>
+                  </label>
+                </RadioGroup>
+              </div>
+
+              <Separator />
+
               <div className="flex justify-between text-lg font-bold">
                 <span>Total</span>
                 <span>R {total.toFixed(2)}</span>
@@ -241,8 +288,15 @@ const Checkout = () => {
                 size="lg"
                 disabled={loading}
               >
-                {loading ? "Placing Order..." : "Place Order"}
+                {loading
+                  ? paymentMethod === "card"
+                    ? "Redirecting to payment…"
+                    : "Placing Order..."
+                  : paymentMethod === "card"
+                    ? `Pay R ${total.toFixed(2)}`
+                    : "Place Order"}
               </Button>
+
             </CardContent>
           </Card>
         </div>
