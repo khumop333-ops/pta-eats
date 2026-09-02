@@ -98,6 +98,10 @@ export type Database = {
           delivery_address: string
           delivery_fee: number
           id: string
+          paid_at: string | null
+          payment_method: string
+          payment_reference: string | null
+          payment_status: string
           phone_number: string
           restaurant_id: number
           restaurant_name: string
@@ -115,6 +119,10 @@ export type Database = {
           delivery_address: string
           delivery_fee?: number
           id?: string
+          paid_at?: string | null
+          payment_method?: string
+          payment_reference?: string | null
+          payment_status?: string
           phone_number: string
           restaurant_id: number
           restaurant_name: string
@@ -132,6 +140,10 @@ export type Database = {
           delivery_address?: string
           delivery_fee?: number
           id?: string
+          paid_at?: string | null
+          payment_method?: string
+          payment_reference?: string | null
+          payment_status?: string
           phone_number?: string
           restaurant_id?: number
           restaurant_name?: string
