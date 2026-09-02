@@ -90,6 +90,8 @@ const Checkout = () => {
         total,
         status: "New",
         user_id: user!.id,
+        payment_method: paymentMethod,
+        payment_status: "pending",
       })
       .select()
       .single();
@@ -116,9 +118,30 @@ const Checkout = () => {
       return;
     }
 
+    if (paymentMethod === "card") {
+      const { data, error } = await supabase.functions.invoke("create-ikhokha-payment", {
+        body: { orderId: order.id, returnOrigin: window.location.origin },
+      });
+
+      if (error) {
+        const details =
+          error instanceof FunctionsHttpError ? await error.context.text() : error.message;
+        console.error("create-ikhokha-payment failed:", details);
+        toast.error("Could not start card payment. Your order was saved — you can pay cash on delivery.");
+        clearCart();
+        navigate(`/order-confirmation/${order.id}?payment=failed`);
+        return;
+      }
+
+      clearCart();
+      window.location.href = (data as { paylinkUrl: string }).paylinkUrl;
+      return;
+    }
+
     clearCart();
     navigate(`/order-confirmation/${order.id}`);
   };
+
 
   return (
     <div className="min-h-screen bg-background">
