@@ -21,6 +21,9 @@ interface Order {
   delivery_fee: number;
   total: number;
   status: string;
+  payment_method: string;
+  payment_status: string;
+
   created_at: string;
   delivery_address: string;
   order_items: OrderItem[];
