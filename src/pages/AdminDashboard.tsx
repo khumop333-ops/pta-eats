@@ -36,9 +36,12 @@ interface Order {
   delivery_fee: number;
   total: number;
   status: string;
+  payment_method: string;
+  payment_status: string;
   created_at: string;
   order_items: OrderItem[];
 }
+
 
 const statusColors: Record<string, string> = {
   New: "bg-accent text-accent-foreground",
@@ -116,6 +119,23 @@ const AdminDashboard = () => {
       );
     }
   };
+
+  const markPaid = async (orderId: string) => {
+    const { error } = await supabase
+      .from("orders")
+      .update({ payment_status: "paid", paid_at: new Date().toISOString() })
+      .eq("id", orderId);
+
+    if (error) {
+      toast.error("Failed to mark as paid");
+    } else {
+      toast.success("Payment recorded");
+      setOrders((prev) =>
+        prev.map((o) => (o.id === orderId ? { ...o, payment_status: "paid" } : o))
+      );
+    }
+  };
+
 
   if (!isAuthenticated) return null;
 
