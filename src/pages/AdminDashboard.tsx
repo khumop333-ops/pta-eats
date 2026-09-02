@@ -210,7 +210,26 @@ const AdminDashboard = () => {
                             {order.order_items.map((i) => `${i.quantity}× ${i.item_name}`).join(", ")}
                           </p>
                         </TableCell>
-                        <TableCell className="font-semibold">R {Number(order.total).toFixed(2)}</TableCell>
+                        <TableCell className="font-semibold">
+                          R {Number(order.total).toFixed(2)}
+                          <div className="mt-1 flex items-center gap-1 text-xs font-normal">
+                            <span className="text-muted-foreground">
+                              {order.payment_method === "cash" ? "Cash" : "Card"}
+                            </span>
+                            <Badge
+                              variant="outline"
+                              className={
+                                order.payment_status === "paid"
+                                  ? "border-green-200 bg-green-100 text-green-800"
+                                  : order.payment_status === "failed"
+                                    ? "border-destructive/20 bg-destructive/10 text-destructive"
+                                    : ""
+                              }
+                            >
+                              {order.payment_status === "paid" ? "Paid" : order.payment_status === "failed" ? "Failed" : "Unpaid"}
+                            </Badge>
+                          </div>
+                        </TableCell>
                         <TableCell>
                           <Badge className={statusColors[order.status] || ""} variant="secondary">{order.status}</Badge>
                         </TableCell>
@@ -224,6 +243,10 @@ const AdminDashboard = () => {
                           {(order.status === "New" || order.status === "Accepted") && (
                             <Button size="sm" onClick={() => updateStatus(order.id, "Ready for Pickup/Delivery")}>Ready</Button>
                           )}
+                          {order.payment_status !== "paid" && (
+                            <Button size="sm" variant="ghost" onClick={() => markPaid(order.id)}>Mark Paid</Button>
+                          )}
+
                         </TableCell>
                       </TableRow>
                     ))}
