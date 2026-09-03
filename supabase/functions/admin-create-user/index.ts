@@ -2,9 +2,15 @@ import { createClient } from 'npm:@supabase/supabase-js@2'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-admin-secret',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
 }
+
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  })
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -12,13 +18,31 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const providedSecret = req.headers.get('x-admin-secret')
-    const expected = Deno.env.get('ADMIN_API_SECRET')
-    if (!expected || providedSecret !== expected) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+    const authHeader = req.headers.get('Authorization') ?? ''
+    if (!authHeader.startsWith('Bearer ')) {
+      return json({ error: 'Unauthorized' }, 401)
+    }
+
+    const admin = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    )
+
+    const { data: userData, error: userErr } = await admin.auth.getUser(
+      authHeader.replace('Bearer ', ''),
+    )
+
+    if (userErr || !userData.user) {
+      return json({ error: 'Unauthorized' }, 401)
+    }
+
+    const { data: isAdmin, error: roleCheckErr } = await admin.rpc('has_role', {
+      _user_id: userData.user.id,
+      _role: 'admin',
+    })
+
+    if (roleCheckErr || isAdmin !== true) {
+      return json({ error: 'Admin access required' }, 403)
     }
 
     const body = await req.json()
@@ -31,16 +55,8 @@ Deno.serve(async (req) => {
       password.length < 6 ||
       !['deliverer', 'restaurant_owner'].includes(role)
     ) {
-      return new Response(JSON.stringify({ error: 'Invalid input' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return json({ error: 'Invalid input' }, 400)
     }
-
-    const admin = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-    )
 
     const { data: created, error: createErr } = await admin.auth.admin.createUser({
       email,
@@ -50,10 +66,7 @@ Deno.serve(async (req) => {
     })
 
     if (createErr || !created.user) {
-      return new Response(JSON.stringify({ error: createErr?.message ?? 'Failed to create user' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return json({ error: createErr?.message ?? 'Failed to create user' }, 400)
     }
 
     const userId = created.user.id
@@ -63,10 +76,7 @@ Deno.serve(async (req) => {
       .insert({ user_id: userId, role })
 
     if (roleErr) {
-      return new Response(JSON.stringify({ error: `Role assign failed: ${roleErr.message}` }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return json({ error: `Role assign failed: ${roleErr.message}` }, 500)
     }
 
     if (role === 'restaurant_owner' && typeof restaurant_id === 'number') {
@@ -76,21 +86,12 @@ Deno.serve(async (req) => {
         .eq('id', restaurant_id)
 
       if (updErr) {
-        return new Response(JSON.stringify({ error: `Restaurant link failed: ${updErr.message}` }), {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        })
+        return json({ error: `Restaurant link failed: ${updErr.message}` }, 500)
       }
     }
 
-    return new Response(JSON.stringify({ user_id: userId }), {
-      status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    return json({ user_id: userId }, 200)
   } catch (e) {
-    return new Response(JSON.stringify({ error: (e as Error).message }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    return json({ error: (e as Error).message }, 500)
   }
 })
