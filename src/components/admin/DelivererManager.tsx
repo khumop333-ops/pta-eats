@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { useAdminAuth } from "@/context/AdminAuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,7 +13,6 @@ interface DelivererProfile {
 }
 
 const DelivererManager = () => {
-  const { adminSecret } = useAdminAuth();
   const [deliverers, setDeliverers] = useState<DelivererProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [email, setEmail] = useState("");
@@ -62,15 +60,9 @@ const DelivererManager = () => {
       toast.error("Password must be at least 6 characters");
       return;
     }
-    if (!adminSecret) {
-      toast.error("Missing admin key — please sign in again");
-      return;
-    }
-
     setAdding(true);
     const { data, error } = await supabase.functions.invoke("admin-create-user", {
       body: { email, password, full_name: fullName, role: "deliverer" },
-      headers: { "x-admin-secret": adminSecret },
     });
 
     if (error || (data as any)?.error) {

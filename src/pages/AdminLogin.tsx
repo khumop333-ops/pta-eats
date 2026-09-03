@@ -9,19 +9,22 @@ import { UtensilsCrossed, LogIn } from "lucide-react";
 import { toast } from "sonner";
 
 const AdminLogin = () => {
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [secret, setSecret] = useState("");
+  const [loading, setLoading] = useState(false);
   const { login } = useAdminAuth();
   const navigate = useNavigate();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (login(username, password, secret)) {
-      navigate("/admin");
-    } else {
-      toast.error("Invalid credentials. Please try again.");
+    setLoading(true);
+    const { error } = await login(email, password);
+    setLoading(false);
+    if (error) {
+      toast.error(error);
+      return;
     }
+    navigate("/admin");
   };
 
   return (
@@ -39,29 +42,30 @@ const AdminLogin = () => {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="username">Username</Label>
-              <Input id="username" value={username} onChange={(e) => setUsername(e.target.value)} required />
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="admin@roma.co.za"
+                required
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
-              <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="secret">Admin API Key</Label>
               <Input
-                id="secret"
+                id="password"
                 type="password"
-                value={secret}
-                onChange={(e) => setSecret(e.target.value)}
-                placeholder="Shared secret for creating accounts"
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
                 required
               />
-              <p className="text-xs text-muted-foreground">
-                Required to create deliverer and restaurant owner accounts.
-              </p>
             </div>
-            <Button type="submit" className="w-full" size="lg">
-              <LogIn className="mr-2 h-4 w-4" /> Sign In
+            <Button type="submit" className="w-full" size="lg" disabled={loading}>
+              <LogIn className="mr-2 h-4 w-4" /> {loading ? "Signing in..." : "Sign In"}
             </Button>
           </form>
         </CardContent>
