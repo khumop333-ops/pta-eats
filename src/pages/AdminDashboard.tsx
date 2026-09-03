@@ -50,16 +50,16 @@ const statusColors: Record<string, string> = {
 };
 
 const AdminDashboard = () => {
-  const { isAuthenticated, logout } = useAdminAuth();
+  const { isAuthenticated, loading: authLoading, logout } = useAdminAuth();
   const navigate = useNavigate();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (!authLoading && !isAuthenticated) {
       navigate("/admin/login");
     }
-  }, [isAuthenticated, navigate]);
+  }, [isAuthenticated, authLoading, navigate]);
 
   const fetchOrders = async () => {
     setLoading(true);
