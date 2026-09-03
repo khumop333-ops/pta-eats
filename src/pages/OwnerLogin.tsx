@@ -1,95 +1,72 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { toast } from "sonner";
-import { Store } from "lucide-react";
+import { useState } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
 
-const OwnerLogin = () => {
-  const navigate = useNavigate();
+export default function OwnerLogin() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [form, setForm] = useState({ email: "", password: "" });
+  const navigate = useNavigate();
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleOwnerLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
-    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-      email: form.email,
-      password: form.password,
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email,
+      password: password,
     });
 
-    if (authError) {
-      toast.error(authError.message);
-      setLoading(false);
-      return;
-    }
-
-    const { data: roleData } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", authData.user.id)
-      .eq("role", "restaurant_owner" as any)
-      .maybeSingle();
-
-    if (!roleData) {
-      await supabase.auth.signOut();
-      toast.error("You do not have restaurant owner access.");
-      setLoading(false);
-      return;
-    }
-
-    toast.success("Welcome back!");
-    navigate("/owner");
     setLoading(false);
+
+    if (error) {
+      toast.error("Login failed: " + error.message);
+      return;
+    }
+
+    toast.success("Logged in successfully!");
+    // Ensure this matches the route in App.tsx
+    navigate('/owner'); 
   };
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center px-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
-            <Store className="h-7 w-7 text-primary" />
-          </div>
-          <CardTitle className="font-display text-2xl">Restaurant Login</CardTitle>
-          <CardDescription>Sign in to manage your restaurant and orders</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                required
-                value={form.email}
-                onChange={(e) => setForm({ ...form, email: e.target.value })}
-                placeholder="owner@restaurant.com"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                required
-                minLength={6}
-                value={form.password}
-                onChange={(e) => setForm({ ...form, password: e.target.value })}
-                placeholder="••••••••"
-              />
-            </div>
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Signing in..." : "Sign In"}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <form onSubmit={handleOwnerLogin} className="w-full max-w-sm space-y-4 bg-card p-6 rounded-lg border shadow-sm">
+        <h1 className="text-2xl font-bold text-center">Owner Login</h1>
+        
+        <div>
+          <label className="block text-sm font-medium mb-1">Email</label>
+          <input 
+            type="email" 
+            placeholder="owner@example.com" 
+            value={email} 
+            onChange={(e) => setEmail(e.target.value)} 
+            required 
+            className="w-full border p-2 rounded bg-background"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1">Password</label>
+          <input 
+            type="password" 
+            placeholder="••••••••" 
+            value={password} 
+            onChange={(e) => setPassword(e.target.value)} 
+            required 
+            className="w-full border p-2 rounded bg-background"
+          />
+        </div>
+
+        <button 
+          type="submit" 
+          disabled={loading} 
+          className="w-full bg-primary text-primary-foreground p-2 rounded font-medium hover:opacity-90 transition"
+        >
+          {loading ? 'Logging in...' : 'Sign In'}
+        </button>
+      </form>
     </div>
   );
-};
-
-export default OwnerLogin;
+}

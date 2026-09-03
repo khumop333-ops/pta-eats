@@ -1,268 +1,202 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/context/AuthContext";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from "@/components/ui/table";
-import { Store, LogOut, RefreshCw } from "lucide-react";
-import { toast } from "sonner";
-import MenuItemManager from "@/components/admin/MenuItemManager";
+import { useState } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { useNavigate } from 'react-router-dom';
 
-interface Restaurant {
-  id: number;
-  name: string;
-  cuisine: string;
-  delivery_time: string;
-}
-
-interface OrderItem {
-  id: string;
-  item_name: string;
-  item_price: number;
-  quantity: number;
-}
-
-interface Order {
-  id: string;
-  customer_name: string;
-  phone_number: string;
-  delivery_address: string;
-  special_instructions: string | null;
-  subtotal: number;
-  delivery_fee: number;
-  total: number;
-  status: string;
-  created_at: string;
-  order_items: OrderItem[];
-}
-
-const statusColors: Record<string, string> = {
-  New: "bg-accent text-accent-foreground",
-  Accepted: "bg-secondary text-secondary-foreground",
-  "Ready for Pickup/Delivery": "bg-primary text-primary-foreground",
-};
-
-const OwnerDashboard = () => {
-  const { user, loading: authLoading, signOut } = useAuth();
+export default function OwnerDashboard() {
   const navigate = useNavigate();
-  const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [loading, setLoading] = useState(true);
+  
+  // Restaurant Form State
+  const [restaurantName, setRestaurantName] = useState('');
+  const [restaurantAddress, setRestaurantAddress] = useState('');
+  const [restaurantPhone, setRestaurantPhone] = useState('');
 
-  useEffect(() => {
-    if (authLoading) return;
-    if (!user) {
-      navigate("/owner/login");
-      return;
-    }
+  // Deliverer Form State
+  const [delivererName, setDelivererName] = useState('');
+  const [delivererPhone, setDelivererPhone] = useState('');
+  const [vehicleType, setVehicleType] = useState('Car');
 
-    (async () => {
-      const { data: role } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", user.id)
-        .eq("role", "restaurant_owner" as any)
-        .maybeSingle();
+  // Status Messages
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState('');
 
-      if (!role) {
-        toast.error("Access denied");
-        navigate("/owner/login");
-        return;
-      }
-
-      const { data: rest } = await supabase
-        .from("restaurants")
-        .select("id, name, cuisine, delivery_time")
-        .eq("owner_id", user.id)
-        .maybeSingle();
-
-      if (!rest) {
-        toast.error("No restaurant assigned to your account. Contact the admin.");
-        return;
-      }
-      setRestaurant(rest as Restaurant);
-    })();
-  }, [user, authLoading, navigate]);
-
-  const fetchOrders = async () => {
-    if (!restaurant) return;
+  // Handle Add Restaurant
+  const handleAddRestaurant = async (e: React.FormEvent) => {
+    e.preventDefault();
     setLoading(true);
-    const { data: ordersData } = await supabase
-      .from("orders")
-      .select("*")
-      .eq("restaurant_id", restaurant.id)
-      .order("created_at", { ascending: false });
+    setMessage('');
 
-    const withItems: Order[] = await Promise.all(
-      (ordersData || []).map(async (o) => {
-        const { data: items } = await supabase
-          .from("order_items")
-          .select("*")
-          .eq("order_id", o.id);
-        return { ...o, order_items: items || [] } as Order;
-      })
-    );
-    setOrders(withItems);
+    const { error } = await supabase
+      .from('restaurants')
+      .insert([
+        {
+          name: restaurantName,
+          address: restaurantAddress,
+          phone: restaurantPhone,
+        },
+      ]);
+
     setLoading(false);
+
+    if (error) {
+      setMessage(`Error adding restaurant: ${error.message}`);
+    } else {
+      setMessage('Restaurant added successfully!');
+      setRestaurantName('');
+      setRestaurantAddress('');
+      setRestaurantPhone('');
+    }
   };
 
-  useEffect(() => {
-    if (!restaurant) return;
-    fetchOrders();
+  // Handle Add Deliverer
+  const handleAddDeliverer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setMessage('');
 
-    const channel = supabase
-      .channel(`owner-orders-${restaurant.id}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "orders", filter: `restaurant_id=eq.${restaurant.id}` },
-        () => fetchOrders()
-      )
-      .subscribe();
+    const { error } = await supabase
+      .from('deliverers')
+      .insert([
+        {
+          name: delivererName,
+          phone: delivererPhone,
+          vehicle_type: vehicleType,
+          status: 'active',
+        },
+      ]);
 
-    return () => { supabase.removeChannel(channel); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [restaurant?.id]);
+    setLoading(false);
 
-  const updateStatus = async (orderId: string, newStatus: string) => {
-    const { error } = await supabase.from("orders").update({ status: newStatus }).eq("id", orderId);
-    if (error) toast.error("Failed to update status");
-    else {
-      toast.success(`Order marked as "${newStatus}"`);
-      setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, status: newStatus } : o)));
+    if (error) {
+      setMessage(`Error adding deliverer: ${error.message}`);
+    } else {
+      setMessage('Deliverer added successfully!');
+      setDelivererName('');
+      setDelivererPhone('');
+      setVehicleType('Car');
     }
   };
 
   const handleLogout = async () => {
-    await signOut();
-    navigate("/owner/login");
+    await supabase.auth.signOut();
+    navigate('/');
   };
 
-  if (authLoading) return <div className="min-h-screen flex items-center justify-center text-muted-foreground">Loading...</div>;
-
-  if (!restaurant) {
-    return (
-      <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4 px-4">
-        <Store className="h-12 w-12 text-muted-foreground/40" />
-        <p className="text-muted-foreground text-center max-w-md">
-          No restaurant is assigned to your account yet. Please contact the super admin.
-        </p>
-        <Button variant="outline" onClick={handleLogout}>
-          <LogOut className="mr-1 h-4 w-4" /> Sign Out
-        </Button>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-50 border-b bg-card/80 backdrop-blur-md">
-        <div className="container mx-auto flex h-16 items-center justify-between px-4">
-          <div className="flex items-center gap-2">
-            <Store className="h-7 w-7 text-primary" />
-            <div>
-              <p className="font-display text-lg font-bold leading-tight text-foreground">{restaurant.name}</p>
-              <p className="text-xs text-muted-foreground leading-tight">{restaurant.cuisine}</p>
-            </div>
+    <div className="min-h-screen bg-gray-50 p-6">
+      <div className="max-w-4xl mx-auto">
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-3xl font-bold text-gray-800">Owner Dashboard</h1>
+          <button 
+            onClick={handleLogout}
+            className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded"
+          >
+            Logout
+          </button>
+        </div>
+
+        {message && (
+          <div className="mb-6 p-4 rounded bg-blue-100 text-blue-800 font-medium">
+            {message}
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={fetchOrders}>
-              <RefreshCw className="mr-1 h-4 w-4" /> Refresh
-            </Button>
-            <Button variant="ghost" size="sm" onClick={handleLogout}>
-              <LogOut className="mr-1 h-4 w-4" /> Sign Out
-            </Button>
+        )}
+
+        <div className="grid md:grid-cols-2 gap-8">
+          {/* Add Restaurant Form */}
+          <div className="bg-white p-6 rounded-lg shadow-md border">
+            <h2 className="text-xl font-semibold mb-4 text-gray-700">Add New Restaurant</h2>
+            <form onSubmit={handleAddRestaurant} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Restaurant Name</label>
+                <input
+                  type="text"
+                  required
+                  value={restaurantName}
+                  onChange={(e) => setRestaurantName(e.target.value)}
+                  className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500"
+                  placeholder="e.g. Pretoria Eats Diner"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Address / Location</label>
+                <input
+                  type="text"
+                  required
+                  value={restaurantAddress}
+                  onChange={(e) => setRestaurantAddress(e.target.value)}
+                  className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500"
+                  placeholder="e.g. Hatfield, Pretoria"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Phone Number</label>
+                <input
+                  type="tel"
+                  required
+                  value={restaurantPhone}
+                  onChange={(e) => setRestaurantPhone(e.target.value)}
+                  className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500"
+                  placeholder="012 345 6789"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded font-medium"
+              >
+                {loading ? 'Adding...' : 'Add Restaurant'}
+              </button>
+            </form>
+          </div>
+
+          {/* Add Deliverer Form */}
+          <div className="bg-white p-6 rounded-lg shadow-md border">
+            <h2 className="text-xl font-semibold mb-4 text-gray-700">Add New Deliverer</h2>
+            <form onSubmit={handleAddDeliverer} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Full Name</label>
+                <input
+                  type="text"
+                  required
+                  value={delivererName}
+                  onChange={(e) => setDelivererName(e.target.value)}
+                  className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500"
+                  placeholder="e.g. John Doe"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Phone Number</label>
+                <input
+                  type="tel"
+                  required
+                  value={delivererPhone}
+                  onChange={(e) => setDelivererPhone(e.target.value)}
+                  className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500"
+                  placeholder="082 123 4567"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Vehicle Type</label>
+                <select
+                  value={vehicleType}
+                  onChange={(e) => setVehicleType(e.target.value)}
+                  className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="Car">Car</option>
+                  <option value="Motorbike">Motorbike</option>
+                  <option value="Bicycle">Bicycle</option>
+                </select>
+              </div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded font-medium"
+              >
+                {loading ? 'Adding...' : 'Add Deliverer'}
+              </button>
+            </form>
           </div>
         </div>
-      </header>
-
-      <main className="container mx-auto px-4 py-8">
-        <Tabs defaultValue="orders">
-          <TabsList className="mb-6">
-            <TabsTrigger value="orders">Orders</TabsTrigger>
-            <TabsTrigger value="menu">My Menu</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="orders">
-            <h1 className="font-display text-3xl font-bold text-foreground mb-6">Your Orders</h1>
-            {loading ? (
-              <p className="text-muted-foreground">Loading orders...</p>
-            ) : orders.length === 0 ? (
-              <div className="rounded-lg border bg-card p-12 text-center">
-                <p className="text-lg text-muted-foreground">No orders yet.</p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Orders for {restaurant.name} will appear here in real time.
-                </p>
-              </div>
-            ) : (
-              <div className="rounded-lg border bg-card overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Order ID</TableHead>
-                      <TableHead>Customer</TableHead>
-                      <TableHead>Items</TableHead>
-                      <TableHead>Total</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Time</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {orders.map((order) => (
-                      <TableRow key={order.id}>
-                        <TableCell className="font-mono text-xs">{order.id.slice(0, 8)}…</TableCell>
-                        <TableCell>
-                          <div>
-                            <p className="font-medium">{order.customer_name}</p>
-                            <p className="text-xs text-muted-foreground">{order.phone_number}</p>
-                          </div>
-                        </TableCell>
-                        <TableCell className="max-w-[200px]">
-                          <p className="text-sm truncate">
-                            {order.order_items.map((i) => `${i.quantity}× ${i.item_name}`).join(", ")}
-                          </p>
-                        </TableCell>
-                        <TableCell className="font-semibold">R {Number(order.total).toFixed(2)}</TableCell>
-                        <TableCell>
-                          <Badge className={statusColors[order.status] || ""} variant="secondary">
-                            {order.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">
-                          {new Date(order.created_at).toLocaleString("en-ZA")}
-                        </TableCell>
-                        <TableCell className="text-right space-x-2">
-                          {order.status === "New" && (
-                            <Button size="sm" variant="outline" onClick={() => updateStatus(order.id, "Accepted")}>
-                              Accept
-                            </Button>
-                          )}
-                          {(order.status === "New" || order.status === "Accepted") && (
-                            <Button size="sm" onClick={() => updateStatus(order.id, "Ready for Pickup/Delivery")}>
-                              Ready
-                            </Button>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-          </TabsContent>
-
-          <TabsContent value="menu">
-            <h1 className="font-display text-3xl font-bold text-foreground mb-6">My Menu</h1>
-            <MenuItemManager restaurantId={restaurant.id} />
-          </TabsContent>
-        </Tabs>
-      </main>
+      </div>
     </div>
   );
-};
-
-export default OwnerDashboard;
+}
