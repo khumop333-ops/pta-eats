@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { useAdminAuth } from "@/context/AdminAuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,7 +14,6 @@ interface Props {
 }
 
 const RestaurantOwnerAssign = ({ restaurantId, restaurantName, currentOwnerId, onAssigned }: Props) => {
-  const { adminSecret } = useAdminAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
@@ -26,11 +24,6 @@ const RestaurantOwnerAssign = ({ restaurantId, restaurantName, currentOwnerId, o
       toast.error("Email and 6+ char password required");
       return;
     }
-    if (!adminSecret) {
-      toast.error("Missing admin key — sign in again");
-      return;
-    }
-
     setLoading(true);
     const { data, error } = await supabase.functions.invoke("admin-create-user", {
       body: {
@@ -40,7 +33,6 @@ const RestaurantOwnerAssign = ({ restaurantId, restaurantName, currentOwnerId, o
         role: "restaurant_owner",
         restaurant_id: restaurantId,
       },
-      headers: { "x-admin-secret": adminSecret },
     });
 
     if (error || (data as any)?.error) {

@@ -1,45 +1,69 @@
-import { createContext, useContext, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { supabase } from "@/integrations/supabase/client";
 
 interface AdminAuthContextType {
   isAuthenticated: boolean;
-  adminSecret: string | null;
-  login: (username: string, password: string, adminSecret: string) => boolean;
-  logout: () => void;
+  loading: boolean;
+  login: (email: string, password: string) => Promise<{ error: string | null }>;
+  logout: () => Promise<void>;
 }
 
 const AdminAuthContext = createContext<AdminAuthContextType | undefined>(undefined);
 
-const ADMIN_USERNAME = "restaurant";
-const ADMIN_PASSWORD = "pretoria123";
-
 export const AdminAuthProvider = ({ children }: { children: ReactNode }) => {
-  const [isAuthenticated, setIsAuthenticated] = useState(
-    () => sessionStorage.getItem("admin_auth") === "true"
-  );
-  const [adminSecret, setAdminSecret] = useState<string | null>(
-    () => sessionStorage.getItem("admin_secret")
-  );
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  const login = (username: string, password: string, secret: string): boolean => {
-    if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD && secret.length > 0) {
-      setIsAuthenticated(true);
-      setAdminSecret(secret);
-      sessionStorage.setItem("admin_auth", "true");
-      sessionStorage.setItem("admin_secret", secret);
-      return true;
+  const checkAdmin = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      setIsAuthenticated(false);
+      setLoading(false);
+      return false;
     }
-    return false;
+    const { data } = await supabase.rpc("has_role", { _user_id: user.id, _role: "admin" });
+    setIsAuthenticated(data === true);
+    setLoading(false);
+    return data === true;
   };
 
-  const logout = () => {
+  useEffect(() => {
+    const { data: sub } = supabase.auth.onAuthStateChange(() => {
+      setLoading(true);
+      // defer to avoid deadlocks inside the auth callback
+      setTimeout(() => { checkAdmin(); }, 0);
+    });
+    checkAdmin();
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  const login = async (email: string, password: string) => {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) return { error: error.message };
+
+    const { data: isAdmin } = await supabase.rpc("has_role", {
+      _user_id: data.user.id,
+      _role: "admin",
+    });
+
+    if (isAdmin !== true) {
+      await supabase.auth.signOut();
+      setIsAuthenticated(false);
+      return { error: "This account does not have admin access." };
+    }
+
+    setIsAuthenticated(true);
+    setLoading(false);
+    return { error: null };
+  };
+
+  const logout = async () => {
+    await supabase.auth.signOut();
     setIsAuthenticated(false);
-    setAdminSecret(null);
-    sessionStorage.removeItem("admin_auth");
-    sessionStorage.removeItem("admin_secret");
   };
 
   return (
-    <AdminAuthContext.Provider value={{ isAuthenticated, adminSecret, login, logout }}>
+    <AdminAuthContext.Provider value={{ isAuthenticated, loading, login, logout }}>
       {children}
     </AdminAuthContext.Provider>
   );
