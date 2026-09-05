@@ -67,60 +67,38 @@ const Checkout = () => {
     );
   }
 
-  const restaurantName = items[0]?.restaurantId
-    ? ["", "Tshwane Kitchen", "Church Street Eats", "Sunnyside Spices"][items[0].restaurantId] || "Restaurant"
-    : "Restaurant";
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
-    // Insert order
-    const { data: order, error: orderError } = await supabase
-      .from("orders")
-      .insert({
-        customer_name: form.fullName,
-        phone_number: form.phone,
-        delivery_address: form.address,
-        special_instructions: form.instructions || null,
-        restaurant_id: items[0].restaurantId,
-        restaurant_name: restaurantName,
-        subtotal,
-        delivery_fee: DELIVERY_FEE,
-        total,
-        status: "New",
-        user_id: user!.id,
-        payment_method: paymentMethod,
-        payment_status: "pending",
-      })
-      .select()
-      .single();
+    // Prices and totals are calculated on the server from the live menu.
+    const { data: created, error: createError } = await supabase.functions.invoke("create-order", {
+      body: {
+        customerName: form.fullName,
+        phone: form.phone,
+        address: form.address,
+        instructions: form.instructions || null,
+        paymentMethod,
+        items: items.map((item) => ({ menuItemId: item.id, quantity: item.quantity })),
+      },
+    });
 
-    if (orderError || !order) {
+    const orderId = (created as { orderId?: string } | null)?.orderId;
+
+    if (createError || !orderId) {
+      const details =
+        createError instanceof FunctionsHttpError
+          ? await createError.context.text()
+          : createError?.message;
+      console.error("create-order failed:", details);
       toast.error("Failed to place order. Please try again.");
-      setLoading(false);
-      return;
-    }
-
-    // Insert order items
-    const orderItems = items.map((item) => ({
-      order_id: order.id,
-      item_name: item.name,
-      item_price: item.price,
-      quantity: item.quantity,
-    }));
-
-    const { error: itemsError } = await supabase.from("order_items").insert(orderItems);
-
-    if (itemsError) {
-      toast.error("Order created but items failed to save.");
       setLoading(false);
       return;
     }
 
     if (paymentMethod === "card") {
       const { data, error } = await supabase.functions.invoke("create-ikhokha-payment", {
-        body: { orderId: order.id, returnOrigin: window.location.origin },
+        body: { orderId, returnOrigin: window.location.origin },
       });
 
       if (error) {
@@ -129,7 +107,7 @@ const Checkout = () => {
         console.error("create-ikhokha-payment failed:", details);
         toast.error("Could not start card payment. Your order was saved — you can pay cash on delivery.");
         clearCart();
-        navigate(`/order-confirmation/${order.id}?payment=failed`);
+        navigate(`/order-confirmation/${orderId}?payment=failed`);
         return;
       }
 
@@ -139,8 +117,9 @@ const Checkout = () => {
     }
 
     clearCart();
-    navigate(`/order-confirmation/${order.id}`);
+    navigate(`/order-confirmation/${orderId}`);
   };
+
 
 
   return (
