@@ -1,7 +1,43 @@
 import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
-// iKhokha posts payment status callbacks here. No JWT — verified by transaction lookup.
+const WEBHOOK_PATH = '/functions/v1/ikhokha-webhook';
+
+async function hmacHex(secret: string, message: string) {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(message));
+  return Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// iKhokha posts payment status callbacks here. Requests must carry a valid
+// HMAC signature produced with our iKhokha app secret, otherwise they are rejected.
+async function isSignatureValid(req: Request, rawBody: string, secret: string) {
+  const provided = (
+    req.headers.get('IK-SIGN') ??
+    req.headers.get('ik-sign') ??
+    req.headers.get('x-ik-sign') ??
+    ''
+  ).trim().toLowerCase();
+  if (!provided) return false;
+
+  const compact = rawBody.replace(/\s/g, '');
+  const candidates = [
+    (WEBHOOK_PATH + rawBody).replace(/\s/g, ''),
+    compact,
+    rawBody,
+  ];
+  for (const candidate of candidates) {
+    if (provided === (await hmacHex(secret, candidate))) return true;
+  }
+  return false;
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
@@ -12,8 +48,18 @@ Deno.serve(async (req) => {
     });
 
   try {
+    const secret = Deno.env.get('IKHOKHA_APP_SECRET');
+    if (!secret) {
+      console.error('Webhook rejected: IKHOKHA_APP_SECRET is not configured');
+      return json({ error: 'Not configured' }, 503);
+    }
+
     const raw = await req.text();
-    console.log('iKhokha webhook payload:', raw);
+
+    if (!(await isSignatureValid(req, raw, secret))) {
+      console.error('Webhook rejected: invalid or missing signature');
+      return json({ error: 'Invalid signature' }, 401);
+    }
 
     let event: Record<string, unknown> = {};
     try {
@@ -29,7 +75,7 @@ Deno.serve(async (req) => {
       '';
     const orderId = externalId.startsWith('roma-') ? externalId.slice(5) : '';
     if (!/^[0-9a-f-]{36}$/i.test(orderId)) {
-      console.error('Webhook: could not resolve order id from', externalId);
+      console.error('Webhook: could not resolve order id');
       return json({ error: 'Unknown transaction' }, 400);
     }
 
@@ -42,6 +88,27 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     );
 
+    const { data: order, error: orderErr } = await admin
+      .from('orders')
+      .select('id, total')
+      .eq('id', orderId)
+      .maybeSingle();
+
+    if (orderErr || !order) {
+      console.error('Webhook: order not found');
+      return json({ error: 'Unknown transaction' }, 400);
+    }
+
+    // If the callback reports an amount, it must match the authoritative order total.
+    const reportedCents = Number(event.amount ?? NaN);
+    if (paid && Number.isFinite(reportedCents)) {
+      const expectedCents = Math.round(Number(order.total) * 100);
+      if (Math.round(reportedCents) !== expectedCents) {
+        console.error('Webhook rejected: amount mismatch for order', orderId);
+        return json({ error: 'Amount mismatch' }, 400);
+      }
+    }
+
     const { error } = await admin
       .from('orders')
       .update({
@@ -52,12 +119,12 @@ Deno.serve(async (req) => {
 
     if (error) {
       console.error('Webhook order update failed:', error.message);
-      return json({ error: error.message }, 500);
+      return json({ error: 'Update failed' }, 500);
     }
 
     return json({ received: true });
   } catch (err) {
     console.error('ikhokha-webhook error:', err);
-    return json({ error: err instanceof Error ? err.message : 'Unknown error' }, 500);
+    return json({ error: 'Unexpected error' }, 500);
   }
 });
