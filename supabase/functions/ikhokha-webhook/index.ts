@@ -100,6 +100,19 @@ Deno.serve(async (req) => {
     }
 
     const admin = createClient(supabaseUrl, serviceRoleKey);
+    const { data: allowed, error: rateLimitError } = await admin.rpc('consume_rate_limit', {
+      _bucket_key: `ikhokha-webhook:${externalId}`,
+      _max_requests: 30,
+      _window_seconds: 60,
+    });
+    if (rateLimitError) {
+      console.error('Webhook: rate limiter failed:', rateLimitError.message);
+      return json({ error: 'Temporarily unavailable' }, 503);
+    }
+    if (allowed !== true) {
+      return json({ error: 'Too many callbacks' }, 429);
+    }
+
     const { data: order, error: orderErr } = await admin
       .from('orders')
       .select('id, total, payment_method, payment_status')

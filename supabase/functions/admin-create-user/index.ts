@@ -47,6 +47,19 @@ Deno.serve(async (req) => {
       return json({ error: 'Admin access required' }, 403)
     }
 
+    const { data: allowed, error: rateLimitError } = await admin.rpc('consume_rate_limit', {
+      _bucket_key: `admin-create-user:${userData.user.id}`,
+      _max_requests: 20,
+      _window_seconds: 60,
+    })
+    if (rateLimitError) {
+      console.error('admin-create-user: rate limiter failed:', rateLimitError.message)
+      return json({ error: 'User service is temporarily unavailable' }, 503)
+    }
+    if (allowed !== true) {
+      return json({ error: 'Too many account-creation attempts. Please wait a minute and try again.' }, 429)
+    }
+
     const body = await req.json()
     const { email, password, full_name, role, restaurant_id } = body ?? {}
     const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : ''

@@ -50,6 +50,19 @@ Deno.serve(async (req) => {
     const body = parsed.data;
 
     const admin = createClient(supabaseUrl, serviceRoleKey);
+    const { data: allowed, error: rateLimitError } = await admin.rpc('consume_rate_limit', {
+      _bucket_key: `create-order:${userData.user.id}`,
+      _max_requests: 10,
+      _window_seconds: 60,
+    });
+    if (rateLimitError) {
+      console.error('create-order: rate limiter failed:', rateLimitError.message);
+      return json({ error: 'Order service is temporarily unavailable' }, 503);
+    }
+    if (allowed !== true) {
+      return json({ error: 'Too many order attempts. Please wait a minute and try again.' }, 429);
+    }
+
     const { data, error } = await admin.rpc('create_order_atomic', {
       _customer_name: body.customerName,
       _phone_number: body.phone,

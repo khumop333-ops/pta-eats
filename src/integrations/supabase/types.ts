@@ -290,6 +290,14 @@ export type Database = {
         Args: { _order_id: string }
         Returns: boolean
       }
+      consume_rate_limit: {
+        Args: { _bucket_key: string; _max_requests: number; _window_seconds: number }
+        Returns: boolean
+      }
+      cleanup_rate_limit_buckets: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
     }
     Enums: {
       app_role: "admin" | "deliverer" | "user" | "restaurant_owner"
