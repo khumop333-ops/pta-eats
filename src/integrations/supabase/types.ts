@@ -98,6 +98,7 @@ export type Database = {
           delivery_address: string
           delivery_fee: number
           id: string
+          idempotency_key: string | null
           paid_at: string | null
           payment_method: string
           payment_reference: string | null
@@ -119,6 +120,7 @@ export type Database = {
           delivery_address: string
           delivery_fee?: number
           id?: string
+          idempotency_key?: string | null
           paid_at?: string | null
           payment_method?: string
           payment_reference?: string | null
@@ -140,6 +142,7 @@ export type Database = {
           delivery_address?: string
           delivery_fee?: number
           id?: string
+          idempotency_key?: string | null
           paid_at?: string | null
           payment_method?: string
           payment_reference?: string | null
@@ -251,6 +254,40 @@ export type Database = {
       }
       owns_restaurant: {
         Args: { _restaurant_id: number; _user_id: string }
+        Returns: boolean
+      }
+      create_order_atomic: {
+        Args: {
+          _customer_name: string
+          _delivery_address: string
+          _idempotency_key: string
+          _items: Json
+          _payment_method: string
+          _phone_number: string
+          _special_instructions: string | null
+          _user_id: string
+        }
+        Returns: {
+          delivery_fee: number
+          order_id: string
+          subtotal: number
+          total: number
+        }[]
+      }
+      update_order_status: {
+        Args: { _new_status: string; _order_id: string }
+        Returns: boolean
+      }
+      assign_order_deliverer: {
+        Args: { _deliverer_id: string | null; _order_id: string }
+        Returns: boolean
+      }
+      mark_order_paid: {
+        Args: { _order_id: string }
+        Returns: boolean
+      }
+      switch_order_to_cash: {
+        Args: { _order_id: string }
         Returns: boolean
       }
     }

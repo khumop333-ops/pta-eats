@@ -34,10 +34,17 @@ interface OrderRow {
   order_items?: { id: string; item_name: string; item_price: number; quantity: number }[];
 }
 
-const STATUSES = ["New", "Preparing", "Ready", "Picked Up", "On the Way", "Delivered"];
-
 const statusVariant = (status: string) =>
   status === "New" ? "default" : status === "Delivered" ? "secondary" : "outline";
+
+const nextOwnerStatuses = (status: string) => {
+  switch (status) {
+    case "New": return ["Accepted"];
+    case "Accepted": return ["Preparing"];
+    case "Preparing": return ["Ready"];
+    default: return [];
+  }
+};
 
 export default function OwnerDashboard() {
   const navigate = useNavigate();
@@ -96,10 +103,13 @@ export default function OwnerDashboard() {
   }, [navigate]);
 
   const updateStatus = async (orderId: string, status: string) => {
-    const { error } = await supabase.from("orders").update({ status }).eq("id", orderId);
-    if (error) { toast.error("Could not update the order"); return; }
+    const { error } = await supabase.rpc("update_order_status", {
+      _order_id: orderId,
+      _new_status: status,
+    });
+    if (error) { toast.error(error.message || "Could not update the order"); return; }
     toast.success(`Order marked ${status}`);
-    if (restaurant) loadOrders(restaurant.id);
+    if (restaurant) void loadOrders(restaurant.id);
   };
 
   const handleLogout = async () => {
@@ -198,9 +208,9 @@ export default function OwnerDashboard() {
                   </div>
 
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {STATUSES.filter((s) => s !== order.status).map((s) => (
-                      <Button key={s} size="sm" variant="outline" onClick={() => updateStatus(order.id, s)}>
-                        {s}
+                    {nextOwnerStatuses(order.status).map((status) => (
+                      <Button key={status} size="sm" variant="outline" onClick={() => { void updateStatus(order.id, status); }}>
+                        {status}
                       </Button>
                     ))}
                   </div>

@@ -12,6 +12,10 @@ interface DelivererProfile {
   full_name: string | null;
 }
 
+interface AdminFunctionResponse {
+  error?: string;
+}
+
 const DelivererManager = () => {
   const [deliverers, setDeliverers] = useState<DelivererProfile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -65,8 +69,9 @@ const DelivererManager = () => {
       body: { email, password, full_name: fullName, role: "deliverer" },
     });
 
-    if (error || (data as any)?.error) {
-      toast.error((data as any)?.error || error?.message || "Failed to create account");
+    const response = data as AdminFunctionResponse | null;
+    if (error || response?.error) {
+      toast.error(response?.error || error?.message || "Failed to create account");
       setAdding(false);
       return;
     }
@@ -84,7 +89,7 @@ const DelivererManager = () => {
       .from("user_roles")
       .delete()
       .eq("user_id", userId)
-      .eq("role", "deliverer" as any);
+      .eq("role", "deliverer");
 
     if (error) {
       toast.error("Failed to remove deliverer role");
@@ -148,7 +153,13 @@ const DelivererManager = () => {
                 <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20">
                   Deliverer
                 </Badge>
-                <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleRemoveRole(d.user_id)}>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`Remove ${d.full_name || "deliverer"}`}
+                  className="text-destructive"
+                  onClick={() => { void handleRemoveRole(d.user_id); }}
+                >
                   <Trash2 className="h-4 w-4" />
                 </Button>
               </div>

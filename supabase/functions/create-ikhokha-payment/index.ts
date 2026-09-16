@@ -26,6 +26,34 @@ async function hmacHex(secret: string, message: string) {
   return Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+function configuredOrigins() {
+  const configured = Deno.env.get('APP_ALLOWED_ORIGINS') ?? Deno.env.get('SITE_URL') ?? '';
+  return configured
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .flatMap((value) => {
+      try {
+        return [new URL(value).origin];
+      } catch {
+        return [];
+      }
+    });
+}
+
+function normalizeAllowedOrigin(value: string) {
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'https:' && parsed.hostname !== 'localhost' && parsed.hostname !== '127.0.0.1') {
+      return null;
+    }
+    const origin = parsed.origin;
+    return configuredOrigins().includes(origin) ? origin : null;
+  } catch {
+    return null;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
@@ -38,8 +66,11 @@ Deno.serve(async (req) => {
   try {
     const appId = Deno.env.get('IKHOKHA_APP_ID');
     const appSecret = Deno.env.get('IKHOKHA_APP_SECRET');
-    if (!appId || !appSecret) {
-      return json({ error: 'iKhokha is not configured yet. Please add your iKhokha API credentials.' }, 500);
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    if (!appId || !appSecret || !supabaseUrl || !anonKey || !serviceRoleKey) {
+      return json({ error: 'iKhokha is not configured yet.' }, 500);
     }
 
     const parsed = BodySchema.safeParse(await req.json());
@@ -47,27 +78,32 @@ Deno.serve(async (req) => {
       return json({ error: parsed.error.flatten().fieldErrors }, 400);
     }
     const { orderId, returnOrigin } = parsed.data;
+    const allowedOrigin = normalizeAllowedOrigin(returnOrigin);
+    if (!allowedOrigin) {
+      return json({ error: 'Payment return origin is not allowed' }, 400);
+    }
 
-    // Authenticate the caller
     const authHeader = req.headers.get('Authorization') ?? '';
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
     const userClient = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authHeader } },
     });
     const { data: userData } = await userClient.auth.getUser();
     if (!userData?.user) return json({ error: 'Unauthorized' }, 401);
 
-    const admin = createClient(supabaseUrl, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+    const admin = createClient(supabaseUrl, serviceRoleKey);
     const { data: order, error: orderErr } = await admin
       .from('orders')
-      .select('id, total, user_id, restaurant_name, payment_status')
+      .select('id, total, user_id, restaurant_name, payment_method, payment_status, status')
       .eq('id', orderId)
       .maybeSingle();
 
     if (orderErr || !order) return json({ error: 'Order not found' }, 404);
     if (order.user_id !== userData.user.id) return json({ error: 'Forbidden' }, 403);
+    if (order.payment_method !== 'card') return json({ error: 'This order is not a card order' }, 400);
     if (order.payment_status === 'paid') return json({ error: 'Order already paid' }, 400);
+    if (order.status === 'Delivered' || order.status === 'Cancelled') {
+      return json({ error: 'This order can no longer be paid' }, 400);
+    }
 
     const externalTransactionID = `roma-${order.id}`;
     const payload = {
@@ -75,16 +111,16 @@ Deno.serve(async (req) => {
       externalEntityID: appId,
       amount: Math.round(Number(order.total) * 100),
       currency: 'ZAR',
-      requesterUrl: returnOrigin,
+      requesterUrl: allowedOrigin,
       description: `Roma order from ${order.restaurant_name}`,
       paymentReference: order.id.slice(0, 8),
       mode: Deno.env.get('IKHOKHA_MODE') ?? 'live',
       externalTransactionID,
       urls: {
         callbackUrl: `${supabaseUrl}/functions/v1/ikhokha-webhook`,
-        successPageUrl: `${returnOrigin}/order-confirmation/${order.id}?payment=success`,
-        failurePageUrl: `${returnOrigin}/order-confirmation/${order.id}?payment=failed`,
-        cancelUrl: `${returnOrigin}/order-confirmation/${order.id}?payment=cancelled`,
+        successPageUrl: `${allowedOrigin}/order-confirmation/${order.id}?payment=success`,
+        failurePageUrl: `${allowedOrigin}/order-confirmation/${order.id}?payment=failed`,
+        cancelUrl: `${allowedOrigin}/order-confirmation/${order.id}?payment=cancelled`,
       },
     };
 
@@ -104,7 +140,8 @@ Deno.serve(async (req) => {
     const text = await response.text();
     if (!response.ok) {
       console.error(`iKhokha paylink failed [${response.status}]: ${text}`);
-      return json({ error: 'Payment provider request failed', status: response.status, details: text }, response.status);
+      await admin.from('orders').update({ payment_status: 'failed', paid_at: null }).eq('id', order.id);
+      return json({ error: 'Payment provider request failed' }, 502);
     }
 
     let result: Record<string, unknown>;
@@ -112,27 +149,40 @@ Deno.serve(async (req) => {
       result = JSON.parse(text);
     } catch {
       console.error('iKhokha returned non-JSON:', text);
-      return json({ error: 'Unexpected response from payment provider', details: text }, 502);
+      await admin.from('orders').update({ payment_status: 'failed', paid_at: null }).eq('id', order.id);
+      return json({ error: 'Unexpected response from payment provider' }, 502);
     }
 
-    const paylinkUrl = result.paylinkUrl as string | undefined;
-    if (!paylinkUrl) {
-      console.error('iKhokha response missing paylinkUrl:', text);
-      return json({ error: 'Payment link not created', details: result }, 502);
+    const paylinkUrl = typeof result.paylinkUrl === 'string' ? result.paylinkUrl : undefined;
+    if (!paylinkUrl || !paylinkUrl.startsWith('https://')) {
+      console.error('iKhokha response missing a secure paylinkUrl:', text);
+      await admin.from('orders').update({ payment_status: 'failed', paid_at: null }).eq('id', order.id);
+      return json({ error: 'Payment link not created' }, 502);
     }
 
-    await admin
+    const paymentReference =
+      (typeof result.paylinkID === 'string' && result.paylinkID) ||
+      (typeof result.paylinkId === 'string' && result.paylinkId) ||
+      externalTransactionID;
+
+    const { error: updateError } = await admin
       .from('orders')
       .update({
         payment_method: 'card',
         payment_status: 'pending',
-        payment_reference: (result.paylinkId as string) ?? externalTransactionID,
+        payment_reference: paymentReference,
+        paid_at: null,
       })
       .eq('id', order.id);
+
+    if (updateError) {
+      console.error('Could not record payment attempt:', updateError.message);
+      return json({ error: 'Could not record payment attempt' }, 500);
+    }
 
     return json({ paylinkUrl });
   } catch (err) {
     console.error('create-ikhokha-payment error:', err);
-    return json({ error: err instanceof Error ? err.message : 'Unknown error' }, 500);
+    return json({ error: 'Could not start card payment' }, 500);
   }
 });

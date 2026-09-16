@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,23 +30,32 @@ const RestaurantManager = () => {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const fetchAll = async () => {
+  const fetchAll = useCallback(async () => {
     const { data } = await supabase.from("restaurants").select("*").order("id");
     setRestaurants((data as Restaurant[]) || []);
     setLoading(false);
-  };
+  }, []);
 
-  useEffect(() => { fetchAll(); }, []);
+  useEffect(() => { void fetchAll(); }, [fetchAll]);
 
   const uploadImage = async (file: File): Promise<string | null> => {
-    const ext = file.name.split(".").pop();
-    const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+    const extensionByType: Record<string, string> = {
+      "image/jpeg": "jpg",
+      "image/png": "png",
+      "image/webp": "webp",
+    };
+    const extension = extensionByType[file.type];
+    if (!extension) {
+      toast.error("Only JPG, PNG, and WebP images are supported");
+      return null;
+    }
+    const fileName = `${crypto.randomUUID()}.${extension}`;
     const filePath = `restaurants/${fileName}`;
 
     setUploading(true);
     const { error } = await supabase.storage
       .from("restaurant-images")
-      .upload(filePath, file, { upsert: true });
+      .upload(filePath, file, { upsert: false, contentType: file.type });
     setUploading(false);
 
     if (error) {
@@ -90,17 +99,18 @@ const RestaurantManager = () => {
   };
 
   const handleSave = async () => {
-    if (!form.name || !form.cuisine) {
-      toast.error("Name and cuisine are required");
+    const rating = Number(form.rating);
+    if (!form.name.trim() || !form.cuisine.trim() || !Number.isFinite(rating) || rating < 0 || rating > 5) {
+      toast.error("Enter a name, cuisine, and a rating between 0 and 5");
       return;
     }
 
     const payload = {
-      name: form.name,
-      cuisine: form.cuisine,
-      rating: parseFloat(form.rating) || 4.0,
+      name: form.name.trim(),
+      cuisine: form.cuisine.trim(),
+      rating,
       image_url: form.image_url || "/placeholder.svg",
-      delivery_time: form.delivery_time || "30-40 min",
+      delivery_time: form.delivery_time.trim() || "30-40 min",
     };
 
     if (editingId) {
@@ -117,7 +127,7 @@ const RestaurantManager = () => {
     setEditingId(null);
     setPreviewUrl(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
-    fetchAll();
+    void fetchAll();
   };
 
   const handleEdit = (r: Restaurant) => {
@@ -127,10 +137,11 @@ const RestaurantManager = () => {
   };
 
   const handleDelete = async (id: number) => {
+    if (!window.confirm("Delete this restaurant and its menu?")) return;
     const { error } = await supabase.from("restaurants").delete().eq("id", id);
     if (error) { toast.error("Failed to delete"); return; }
     toast.success("Restaurant deleted");
-    fetchAll();
+    void fetchAll();
   };
 
   const displayImage = previewUrl || (form.image_url && form.image_url !== "/placeholder.svg" ? form.image_url : null);
@@ -186,6 +197,8 @@ const RestaurantManager = () => {
                     className="h-16 w-16 rounded-md object-cover border"
                   />
                   <button
+                    type="button"
+                    aria-label="Remove selected restaurant image"
                     onClick={clearImage}
                     className="absolute -top-2 -right-2 rounded-full bg-destructive p-0.5 text-destructive-foreground"
                   >
@@ -233,14 +246,14 @@ const RestaurantManager = () => {
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
-                  <Button variant="ghost" size="sm" onClick={() => setExpandedId(expandedId === r.id ? null : r.id)}>
+                  <Button variant="ghost" size="sm" aria-label={`Manage ${r.name}`} onClick={() => setExpandedId(expandedId === r.id ? null : r.id)}>
                     {expandedId === r.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                     Manage
                   </Button>
-                  <Button variant="ghost" size="icon" onClick={() => handleEdit(r)}>
+                  <Button variant="ghost" size="icon" aria-label={`Edit ${r.name}`} onClick={() => handleEdit(r)}>
                     <Pencil className="h-4 w-4" />
                   </Button>
-                  <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDelete(r.id)}>
+                  <Button variant="ghost" size="icon" aria-label={`Delete ${r.name}`} className="text-destructive" onClick={() => { void handleDelete(r.id); }}>
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>

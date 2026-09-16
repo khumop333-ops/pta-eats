@@ -1,14 +1,16 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import Header from "@/components/Header";
 import { Badge } from "@/components/ui/badge";
-import { Package, Clock, ChevronDown, ChevronUp } from "lucide-react";
+import { Package, Clock, ChevronDown, ChevronUp, Banknote, CreditCard } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 
 interface OrderItem {
   id: string;
+  order_id: string;
   item_name: string;
   item_price: number;
   quantity: number;
@@ -32,7 +34,12 @@ interface Order {
 const statusStyles: Record<string, string> = {
   New: "bg-accent text-accent-foreground",
   Accepted: "bg-secondary text-secondary-foreground",
-  "Ready for Pickup/Delivery": "bg-primary text-primary-foreground",
+  Preparing: "bg-secondary text-secondary-foreground",
+  Ready: "bg-primary text-primary-foreground",
+  "Picked Up": "bg-primary text-primary-foreground",
+  "On the Way": "bg-primary text-primary-foreground",
+  Delivered: "bg-green-100 text-green-800",
+  Cancelled: "bg-destructive/10 text-destructive",
 };
 
 const MyOrders = () => {
@@ -41,46 +48,91 @@ const MyOrders = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [paymentActionId, setPaymentActionId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) navigate("/auth");
   }, [user, authLoading, navigate]);
 
-  const fetchOrders = async () => {
+  const fetchOrders = useCallback(async () => {
     if (!user) return;
     setLoading(true);
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("orders")
       .select("*")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false });
 
-    const withItems: Order[] = await Promise.all(
-      (data || []).map(async (order) => {
-        const { data: items } = await supabase
-          .from("order_items")
-          .select("*")
-          .eq("order_id", order.id);
-        return { ...order, order_items: items || [] } as Order;
-      })
-    );
-    setOrders(withItems);
-    setLoading(false);
-  };
+    if (error) {
+      toast.error("Could not load your orders");
+      setLoading(false);
+      return;
+    }
 
-  useEffect(() => {
-    if (user) fetchOrders();
+    const orderIds = (data || []).map((order) => order.id);
+    const { data: items } = orderIds.length
+      ? await supabase.from("order_items").select("*").in("order_id", orderIds)
+      : { data: [] as OrderItem[] };
+    const itemsByOrder = new Map<string, OrderItem[]>();
+    (items || []).forEach((item) => {
+      const existing = itemsByOrder.get(item.order_id) || [];
+      existing.push(item);
+      itemsByOrder.set(item.order_id, existing);
+    });
+
+    setOrders((data || []).map((order) => ({
+      ...order,
+      order_items: itemsByOrder.get(order.id) || [],
+    })) as Order[]);
+    setLoading(false);
   }, [user]);
 
-  // Realtime updates for user's orders
+  useEffect(() => {
+    if (user) void fetchOrders();
+  }, [user, fetchOrders]);
+
   useEffect(() => {
     if (!user) return;
     const channel = supabase
-      .channel("my-orders")
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `user_id=eq.${user.id}` }, () => fetchOrders())
+      .channel(`my-orders-${user.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "orders", filter: `user_id=eq.${user.id}` },
+        () => { void fetchOrders(); },
+      )
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [user]);
+    return () => { void supabase.removeChannel(channel); };
+  }, [user, fetchOrders]);
+
+  const retryPayment = async (orderId: string) => {
+    setPaymentActionId(orderId);
+    const { data, error } = await supabase.functions.invoke("create-ikhokha-payment", {
+      body: { orderId, returnOrigin: window.location.origin },
+    });
+    setPaymentActionId(null);
+    const paylinkUrl = (data as { paylinkUrl?: string } | null)?.paylinkUrl;
+    if (error || !paylinkUrl) {
+      toast.error("Could not start card payment. Please try again later.");
+      return;
+    }
+    window.location.assign(paylinkUrl);
+  };
+
+  const switchToCash = async (orderId: string) => {
+    setPaymentActionId(orderId);
+    const { error } = await supabase.rpc("switch_order_to_cash", { _order_id: orderId });
+    setPaymentActionId(null);
+    if (error) {
+      toast.error(error.message || "Could not switch this order to cash");
+      return;
+    }
+    setOrders((previous) => previous.map((order) => (
+      order.id === orderId
+        ? { ...order, payment_method: "cash", payment_status: "pending" }
+        : order
+    )));
+    toast.success("You can pay cash when your order arrives.");
+  };
 
   if (authLoading) return null;
 
@@ -162,6 +214,25 @@ const MyOrders = () => {
                                 : "Awaiting payment"}
                         </span>
                       </div>
+                      {order.payment_method === "card" && order.payment_status !== "paid" && order.status !== "Delivered" && order.status !== "Cancelled" && (
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          <Button
+                            size="sm"
+                            onClick={() => { void retryPayment(order.id); }}
+                            disabled={paymentActionId === order.id}
+                          >
+                            <CreditCard className="mr-1 h-3 w-3" /> Retry Card Payment
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => { void switchToCash(order.id); }}
+                            disabled={paymentActionId === order.id}
+                          >
+                            <Banknote className="mr-1 h-3 w-3" /> Switch to Cash
+                          </Button>
+                        </div>
+                      )}
                       <p className="text-xs text-muted-foreground">📍 {order.delivery_address}</p>
                     </div>
                   )}

@@ -21,9 +21,10 @@ type PaymentMethod = "card" | "cash";
 
 const Checkout = () => {
   const { items, subtotal, clearCart } = useCart();
-  const { user, profile } = useAuth();
+  const { user, profile, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const [idempotencyKey] = useState(() => crypto.randomUUID());
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("card");
   const [form, setForm] = useState({
     fullName: "",
@@ -35,11 +36,10 @@ const Checkout = () => {
 
   // Redirect to auth if not logged in
   useEffect(() => {
-    if (!user) {
-      toast.error("Please sign in to checkout");
-      navigate("/auth");
-    }
-  }, [user, navigate]);
+    if (authLoading || user) return;
+    toast.error("Please sign in to checkout");
+    navigate("/auth");
+  }, [authLoading, user, navigate]);
 
   // Pre-fill from profile
   useEffect(() => {
@@ -53,6 +53,15 @@ const Checkout = () => {
   }, [profile]);
 
   const total = subtotal + DELIVERY_FEE;
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <div className="container mx-auto py-24 text-center text-muted-foreground">Checking your account…</div>
+      </div>
+    );
+  }
 
   if (items.length === 0) {
     return (
@@ -79,6 +88,7 @@ const Checkout = () => {
         address: form.address,
         instructions: form.instructions || null,
         paymentMethod,
+        idempotencyKey,
         items: items.map((item) => ({ menuItemId: item.id, quantity: item.quantity })),
       },
     });
@@ -105,7 +115,7 @@ const Checkout = () => {
         const details =
           error instanceof FunctionsHttpError ? await error.context.text() : error.message;
         console.error("create-ikhokha-payment failed:", details);
-        toast.error("Could not start card payment. Your order was saved — you can pay cash on delivery.");
+        toast.error("Card payment could not start. Your order is saved; retry card payment or switch to cash from the order page.");
         clearCart();
         navigate(`/order-confirmation/${orderId}?payment=failed`);
         return;

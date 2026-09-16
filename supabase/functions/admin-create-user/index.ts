@@ -23,13 +23,15 @@ Deno.serve(async (req) => {
       return json({ error: 'Unauthorized' }, 401)
     }
 
-    const admin = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-    )
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+    if (!supabaseUrl || !serviceRoleKey) {
+      return json({ error: 'User service is not configured' }, 500)
+    }
 
+    const admin = createClient(supabaseUrl, serviceRoleKey)
     const { data: userData, error: userErr } = await admin.auth.getUser(
-      authHeader.replace('Bearer ', ''),
+      authHeader.replace(/^Bearer\s+/, ''),
     )
 
     if (userErr || !userData.user) {
@@ -47,22 +49,42 @@ Deno.serve(async (req) => {
 
     const body = await req.json()
     const { email, password, full_name, role, restaurant_id } = body ?? {}
+    const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : ''
+    const normalizedName = typeof full_name === 'string' ? full_name.trim().slice(0, 120) : ''
 
     if (
-      typeof email !== 'string' ||
+      !normalizedEmail ||
+      !/^\S+@\S+\.\S+$/.test(normalizedEmail) ||
       typeof password !== 'string' ||
-      typeof role !== 'string' ||
       password.length < 6 ||
       !['deliverer', 'restaurant_owner'].includes(role)
     ) {
       return json({ error: 'Invalid input' }, 400)
     }
 
+    let restaurantId: number | null = null
+    let previousOwnerId: string | null = null
+    if (role === 'restaurant_owner') {
+      if (!Number.isInteger(restaurant_id) || restaurant_id <= 0) {
+        return json({ error: 'A valid restaurant is required for an owner account' }, 400)
+      }
+      restaurantId = restaurant_id
+      const { data: restaurant, error: restaurantErr } = await admin
+        .from('restaurants')
+        .select('id, owner_id')
+        .eq('id', restaurantId)
+        .maybeSingle()
+      if (restaurantErr || !restaurant) {
+        return json({ error: 'Restaurant not found' }, 400)
+      }
+      previousOwnerId = restaurant.owner_id ?? null
+    }
+
     const { data: created, error: createErr } = await admin.auth.admin.createUser({
-      email,
+      email: normalizedEmail,
       password,
       email_confirm: true,
-      user_metadata: { full_name: full_name ?? '' },
+      user_metadata: { full_name: normalizedName },
     })
 
     if (createErr || !created.user) {
@@ -70,28 +92,41 @@ Deno.serve(async (req) => {
     }
 
     const userId = created.user.id
+    const rollbackUser = async () => {
+      const { error: rollbackError } = await admin.auth.admin.deleteUser(userId)
+      if (rollbackError) {
+        console.error('Could not roll back partially-created user:', rollbackError.message)
+      }
+    }
 
     const { error: roleErr } = await admin
       .from('user_roles')
       .insert({ user_id: userId, role })
 
     if (roleErr) {
-      return json({ error: `Role assign failed: ${roleErr.message}` }, 500)
+      await rollbackUser()
+      return json({ error: 'Role assignment failed; no account was created' }, 500)
     }
 
-    if (role === 'restaurant_owner' && typeof restaurant_id === 'number') {
-      const { error: updErr } = await admin
+    if (restaurantId !== null) {
+      const { error: updateErr } = await admin
         .from('restaurants')
         .update({ owner_id: userId })
-        .eq('id', restaurant_id)
+        .eq('id', restaurantId)
 
-      if (updErr) {
-        return json({ error: `Restaurant link failed: ${updErr.message}` }, 500)
+      if (updateErr) {
+        await admin
+          .from('restaurants')
+          .update({ owner_id: previousOwnerId })
+          .eq('id', restaurantId)
+        await rollbackUser()
+        return json({ error: 'Restaurant link failed; no account was created' }, 500)
       }
     }
 
     return json({ user_id: userId }, 200)
   } catch (e) {
-    return json({ error: (e as Error).message }, 500)
+    console.error('admin-create-user error:', e)
+    return json({ error: 'Could not create account' }, 500)
   }
 })

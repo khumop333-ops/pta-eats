@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import type { Tables } from "@/integrations/supabase/types";
 
 export interface MenuItem {
   id: string;
@@ -18,59 +19,66 @@ export interface Restaurant {
   menu: MenuItem[];
 }
 
+type RestaurantRow = Tables<"restaurants">;
+type MenuItemRow = Tables<"menu_items">;
+
 export async function fetchRestaurants(): Promise<Restaurant[]> {
-  const { data: restaurants, error: rErr } = await supabase
+  const { data: restaurants, error: restaurantError } = await supabase
     .from("restaurants")
     .select("*")
     .order("id");
 
-  if (rErr || !restaurants) return [];
+  if (restaurantError) throw restaurantError;
+  if (!restaurants) return [];
 
-  const { data: menuItems, error: mErr } = await supabase
+  const { data: menuItems, error: menuError } = await supabase
     .from("menu_items")
     .select("*");
 
-  if (mErr) return restaurants.map((r) => mapRestaurant(r, []));
+  if (menuError) throw menuError;
 
-  return restaurants.map((r) =>
+  return restaurants.map((restaurant) =>
     mapRestaurant(
-      r,
-      (menuItems || []).filter((m) => m.restaurant_id === r.id)
-    )
+      restaurant,
+      (menuItems || []).filter((menuItem) => menuItem.restaurant_id === restaurant.id),
+    ),
   );
 }
 
 export async function fetchRestaurantById(id: number): Promise<Restaurant | null> {
-  const { data: r, error: rErr } = await supabase
+  const { data: restaurant, error: restaurantError } = await supabase
     .from("restaurants")
     .select("*")
     .eq("id", id)
-    .single();
+    .maybeSingle();
 
-  if (rErr || !r) return null;
+  if (restaurantError) throw restaurantError;
+  if (!restaurant) return null;
 
-  const { data: menuItems } = await supabase
+  const { data: menuItems, error: menuError } = await supabase
     .from("menu_items")
     .select("*")
     .eq("restaurant_id", id);
 
-  return mapRestaurant(r, menuItems || []);
+  if (menuError) throw menuError;
+
+  return mapRestaurant(restaurant, menuItems || []);
 }
 
-function mapRestaurant(r: any, items: any[]): Restaurant {
+function mapRestaurant(restaurant: RestaurantRow, items: MenuItemRow[]): Restaurant {
   return {
-    id: r.id,
-    name: r.name,
-    cuisine: r.cuisine,
-    rating: Number(r.rating),
-    image: r.image_url || "/placeholder.svg",
-    deliveryTime: r.delivery_time,
-    menu: items.map((m) => ({
-      id: m.id,
-      name: m.name,
-      description: m.description,
-      price: Number(m.price),
-      category: m.category,
+    id: restaurant.id,
+    name: restaurant.name,
+    cuisine: restaurant.cuisine,
+    rating: Number(restaurant.rating),
+    image: restaurant.image_url || "/placeholder.svg",
+    deliveryTime: restaurant.delivery_time,
+    menu: items.map((item) => ({
+      id: item.id,
+      name: item.name,
+      description: item.description,
+      price: Number(item.price),
+      category: item.category,
     })),
   };
 }

@@ -13,6 +13,8 @@ const CartSidebar = () => {
     <>
       {/* Mobile toggle button */}
       <button
+        type="button"
+        aria-label={`Open cart${itemCount > 0 ? ` (${itemCount} items)` : ""}`}
         onClick={() => setOpen(true)}
         className="fixed bottom-6 right-6 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-xl lg:hidden"
       >
@@ -39,7 +41,7 @@ const CartSidebar = () => {
       >
         <div className="flex items-center justify-between border-b p-4">
           <h3 className="font-display text-lg font-semibold text-foreground">Your Cart</h3>
-          <button onClick={() => setOpen(false)} className="lg:hidden">
+          <button type="button" aria-label="Close cart" onClick={() => setOpen(false)} className="lg:hidden">
             <X className="h-5 w-5 text-muted-foreground" />
           </button>
         </div>
@@ -57,13 +59,15 @@ const CartSidebar = () => {
                 <div key={item.id} className="rounded-lg bg-muted/50 p-3">
                   <div className="flex items-start justify-between">
                     <p className="text-sm font-medium text-foreground">{item.name}</p>
-                    <button onClick={() => removeItem(item.id)}>
+                    <button type="button" aria-label={`Remove ${item.name}`} onClick={() => removeItem(item.id)}>
                       <Trash2 className="h-4 w-4 text-destructive/70 hover:text-destructive" />
                     </button>
                   </div>
                   <div className="mt-2 flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <button
+                        type="button"
+                        aria-label={`Decrease ${item.name} quantity`}
                         onClick={() => updateQuantity(item.id, item.quantity - 1)}
                         className="flex h-7 w-7 items-center justify-center rounded-md border bg-card text-foreground hover:bg-muted"
                       >
@@ -71,6 +75,8 @@ const CartSidebar = () => {
                       </button>
                       <span className="w-6 text-center text-sm font-medium">{item.quantity}</span>
                       <button
+                        type="button"
+                        aria-label={`Increase ${item.name} quantity`}
                         onClick={() => updateQuantity(item.id, item.quantity + 1)}
                         className="flex h-7 w-7 items-center justify-center rounded-md border bg-card text-foreground hover:bg-muted"
                       >
