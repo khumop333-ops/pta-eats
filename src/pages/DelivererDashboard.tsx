@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
@@ -11,6 +11,7 @@ import { Truck, MapPin, Phone, User, Package, LogOut, Navigation } from "lucide-
 
 interface OrderItem {
   id: string;
+  order_id: string;
   item_name: string;
   item_price: number;
   quantity: number;
@@ -31,18 +32,21 @@ interface Order {
   items: OrderItem[];
 }
 
-const STATUS_OPTIONS = [
-  "New",
-  "Accepted",
-  "Picked Up",
-  "On the Way",
-  "Delivered",
-];
+const nextDelivererStatuses = (status: string) => {
+  switch (status) {
+    case "Ready": return ["Picked Up"];
+    case "Picked Up": return ["On the Way"];
+    case "On the Way": return ["Delivered"];
+    default: return [];
+  }
+};
 
 const statusColor = (status: string) => {
   switch (status) {
     case "New": return "bg-blue-100 text-blue-800 border-blue-200";
     case "Accepted": return "bg-yellow-100 text-yellow-800 border-yellow-200";
+    case "Preparing": return "bg-yellow-100 text-yellow-800 border-yellow-200";
+    case "Ready": return "bg-green-100 text-green-800 border-green-200";
     case "Picked Up": return "bg-orange-100 text-orange-800 border-orange-200";
     case "On the Way": return "bg-purple-100 text-purple-800 border-purple-200";
     case "Delivered": return "bg-green-100 text-green-800 border-green-200";
@@ -57,6 +61,34 @@ const DelivererDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [hasAccess, setHasAccess] = useState(false);
 
+  const fetchOrders = useCallback(async () => {
+    if (!user) return;
+    const { data: ordersData, error: ordersError } = await supabase
+      .from("orders")
+      .select("*")
+      .eq("deliverer_id", user.id)
+      .order("created_at", { ascending: false });
+
+    if (ordersError || !ordersData) {
+      toast.error("Failed to load assigned orders");
+      setLoading(false);
+      return;
+    }
+
+    const orderIds = ordersData.map((order) => order.id);
+    const { data: allItems } = orderIds.length
+      ? await supabase.from("order_items").select("*").in("order_id", orderIds)
+      : { data: [] as OrderItem[] };
+
+    const mapped: Order[] = ordersData.map((order) => ({
+      ...order,
+      items: (allItems || []).filter((item) => item.order_id === order.id),
+    }));
+
+    setOrders(mapped);
+    setLoading(false);
+  }, [user]);
+
   useEffect(() => {
     if (authLoading) return;
     if (!user) {
@@ -64,7 +96,6 @@ const DelivererDashboard = () => {
       return;
     }
 
-    // Verify deliverer role
     const checkRole = async () => {
       const { data } = await supabase
         .from("user_roles")
@@ -80,61 +111,42 @@ const DelivererDashboard = () => {
       }
       setHasAccess(true);
     };
-    checkRole();
+    void checkRole();
   }, [user, authLoading, navigate]);
 
   useEffect(() => {
     if (!hasAccess) return;
-    fetchOrders();
+    void fetchOrders();
 
-    // Realtime subscription
     const channel = supabase
-      .channel("deliverer-orders")
+      .channel(`deliverer-orders-${user?.id || "anonymous"}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => {
-        fetchOrders();
+        void fetchOrders();
       })
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
-  }, [hasAccess]);
-
-  const fetchOrders = async () => {
-    const { data: ordersData } = await supabase
-      .from("orders")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (!ordersData) { setLoading(false); return; }
-
-    const { data: allItems } = await supabase
-      .from("order_items")
-      .select("*");
-
-    const mapped: Order[] = ordersData.map((o) => ({
-      ...o,
-      items: (allItems || []).filter((i) => i.order_id === o.id),
-    }));
-
-    setOrders(mapped);
-    setLoading(false);
-  };
+    return () => { void supabase.removeChannel(channel); };
+  }, [hasAccess, fetchOrders, user?.id]);
 
   const updateStatus = async (orderId: string, newStatus: string) => {
-    const { error } = await supabase
-      .from("orders")
-      .update({ status: newStatus })
-      .eq("id", orderId);
+    const { error } = await supabase.rpc("update_order_status", {
+      _order_id: orderId,
+      _new_status: newStatus,
+    });
 
     if (error) {
-      toast.error("Failed to update status");
+      toast.error(error.message || "Failed to update status");
     } else {
       toast.success(`Status updated to "${newStatus}"`);
+      setOrders((previous) => previous.map((order) => (
+        order.id === orderId ? { ...order, status: newStatus } : order
+      )));
     }
   };
 
   const openMaps = (address: string) => {
     const encoded = encodeURIComponent(address);
-    window.open(`https://www.google.com/maps/search/?api=1&query=${encoded}`, "_blank");
+    window.open(`https://www.google.com/maps/search/?api=1&query=${encoded}`, "_blank", "noopener,noreferrer");
   };
 
   const handleLogout = async () => {
@@ -316,8 +328,9 @@ function OrderCard({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {STATUS_OPTIONS.map((s) => (
-                  <SelectItem key={s} value={s}>{s}</SelectItem>
+                <SelectItem value={order.status}>{order.status}</SelectItem>
+                {nextDelivererStatuses(order.status).map((status) => (
+                  <SelectItem key={status} value={status}>{status}</SelectItem>
                 ))}
               </SelectContent>
             </Select>

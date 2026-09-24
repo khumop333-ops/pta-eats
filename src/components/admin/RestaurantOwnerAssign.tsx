@@ -13,6 +13,10 @@ interface Props {
   onAssigned: () => void;
 }
 
+interface AdminFunctionResponse {
+  error?: string;
+}
+
 const RestaurantOwnerAssign = ({ restaurantId, restaurantName, currentOwnerId, onAssigned }: Props) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -35,8 +39,9 @@ const RestaurantOwnerAssign = ({ restaurantId, restaurantName, currentOwnerId, o
       },
     });
 
-    if (error || (data as any)?.error) {
-      toast.error((data as any)?.error || error?.message || "Failed to create owner");
+    const response = data as AdminFunctionResponse | null;
+    if (error || response?.error) {
+      toast.error(response?.error || error?.message || "Failed to create owner");
       setLoading(false);
       return;
     }

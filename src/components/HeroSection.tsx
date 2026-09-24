@@ -2,7 +2,12 @@ import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import heroImage from "@/assets/hero-food.jpg";
 
-const HeroSection = () => {
+interface HeroSectionProps {
+  searchQuery: string;
+  onSearchChange: (value: string) => void;
+}
+
+const HeroSection = ({ searchQuery, onSearchChange }: HeroSectionProps) => {
   return (
     <section className="relative flex min-h-[480px] items-center justify-center overflow-hidden md:min-h-[540px]">
       <img
@@ -23,7 +28,10 @@ const HeroSection = () => {
         <div className="relative mx-auto mt-8 max-w-lg">
           <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
           <Input
+            aria-label="Search restaurants and dishes"
             placeholder="Search for restaurants or dishes..."
+            value={searchQuery}
+            onChange={(event) => onSearchChange(event.target.value)}
             className="h-12 rounded-full border-none bg-card pl-12 text-base shadow-lg focus-visible:ring-primary"
           />
         </div>

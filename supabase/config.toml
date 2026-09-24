@@ -1,1 +1,6 @@
 project_id = "jxfjbxrrbpfibdhwlhyh"
+
+# iKhokha calls this endpoint directly and does not send a Supabase JWT. The
+# function performs its own App ID and HMAC verification before touching data.
+[functions.ikhokha-webhook]
+verify_jwt = false

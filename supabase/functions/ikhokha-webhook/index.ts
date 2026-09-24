@@ -1,22 +1,14 @@
 import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import {
+  equalHex,
+  hmacHex,
+  IKHOKHA_WEBHOOK_PATH,
+  payloadToSign,
+} from '../_shared/ikhokha.ts';
 
-const WEBHOOK_PATH = '/functions/v1/ikhokha-webhook';
+const ORDER_ID_PATTERN = '[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
 
-async function hmacHex(secret: string, message: string) {
-  const key = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  );
-  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(message));
-  return Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, '0')).join('');
-}
-
-// iKhokha posts payment status callbacks here. Requests must carry a valid
-// HMAC signature produced with our iKhokha app secret, otherwise they are rejected.
 async function isSignatureValid(req: Request, rawBody: string, secret: string) {
   const provided = (
     req.headers.get('IK-SIGN') ??
@@ -26,16 +18,8 @@ async function isSignatureValid(req: Request, rawBody: string, secret: string) {
   ).trim().toLowerCase();
   if (!provided) return false;
 
-  const compact = rawBody.replace(/\s/g, '');
-  const candidates = [
-    (WEBHOOK_PATH + rawBody).replace(/\s/g, ''),
-    compact,
-    rawBody,
-  ];
-  for (const candidate of candidates) {
-    if (provided === (await hmacHex(secret, candidate))) return true;
-  }
-  return false;
+  const expected = await hmacHex(secret, payloadToSign(IKHOKHA_WEBHOOK_PATH, rawBody));
+  return equalHex(provided, expected);
 }
 
 Deno.serve(async (req) => {
@@ -49,19 +33,28 @@ Deno.serve(async (req) => {
 
   try {
     const secret = Deno.env.get('IKHOKHA_APP_SECRET');
-    if (!secret) {
-      console.error('Webhook rejected: IKHOKHA_APP_SECRET is not configured');
+    const appId = Deno.env.get('IKHOKHA_APP_ID');
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    if (!secret || !appId || !supabaseUrl || !serviceRoleKey) {
+      console.error('Webhook rejected: payment secrets are not configured');
       return json({ error: 'Not configured' }, 503);
     }
 
-    const raw = await req.text();
+    const callbackAppId = (req.headers.get('IK-APPID') ?? req.headers.get('ik-appid') ?? '').trim();
+    if (callbackAppId !== appId.trim()) {
+      return json({ error: 'Invalid app id' }, 401);
+    }
 
+    // Read the raw body before parsing it. The exact bytes are part of the
+    // iKhokha signature and must not be reconstructed with JSON.stringify.
+    const raw = await req.text();
     if (!(await isSignatureValid(req, raw, secret))) {
       console.error('Webhook rejected: invalid or missing signature');
       return json({ error: 'Invalid signature' }, 401);
     }
 
-    let event: Record<string, unknown> = {};
+    let event: Record<string, unknown>;
     try {
       event = JSON.parse(raw);
     } catch {
@@ -69,12 +62,12 @@ Deno.serve(async (req) => {
     }
 
     const externalId =
-      (event.externalTransactionID as string) ??
-      (event.externalTransactionId as string) ??
-      (event.externalEntityID as string) ??
+      (typeof event.externalTransactionID === 'string' && event.externalTransactionID) ||
+      (typeof event.externalTransactionId === 'string' && event.externalTransactionId) ||
       '';
-    const orderId = externalId.startsWith('roma-') ? externalId.slice(5) : '';
-    if (!/^[0-9a-f-]{36}$/i.test(orderId)) {
+    const orderMatch = externalId.match(new RegExp(`^roma-(${ORDER_ID_PATTERN})(?:-.+)?$`, 'i'));
+    const orderId = orderMatch?.[1] ?? '';
+    if (!orderId) {
       console.error('Webhook: could not resolve order id');
       return json({ error: 'Unknown transaction' }, 400);
     }
@@ -82,15 +75,27 @@ Deno.serve(async (req) => {
     const status = String(event.status ?? event.transactionStatus ?? '').toUpperCase();
     const paid = ['SUCCESS', 'COMPLETE', 'COMPLETED', 'PAID', 'SETTLED'].includes(status);
     const failed = ['FAILED', 'DECLINED', 'CANCELLED', 'CANCELED', 'EXPIRED'].includes(status);
+    if (!paid && !failed && status !== 'PENDING') {
+      return json({ error: 'Unsupported payment status' }, 400);
+    }
 
-    const admin = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-    );
+    const admin = createClient(supabaseUrl, serviceRoleKey);
+    const { data: allowed, error: rateLimitError } = await admin.rpc('consume_rate_limit', {
+      _bucket_key: `ikhokha-webhook:${externalId}`,
+      _max_requests: 30,
+      _window_seconds: 60,
+    });
+    if (rateLimitError) {
+      console.error('Webhook: rate limiter failed:', rateLimitError.message);
+      return json({ error: 'Temporarily unavailable' }, 503);
+    }
+    if (allowed !== true) {
+      return json({ error: 'Too many callbacks' }, 429);
+    }
 
     const { data: order, error: orderErr } = await admin
       .from('orders')
-      .select('id, total')
+      .select('id, total, payment_method, payment_status, payment_reference')
       .eq('id', orderId)
       .maybeSingle();
 
@@ -98,29 +103,58 @@ Deno.serve(async (req) => {
       console.error('Webhook: order not found');
       return json({ error: 'Unknown transaction' }, 400);
     }
+    if (order.payment_method !== 'card') {
+      return json({ error: 'Transaction is not a card order' }, 400);
+    }
 
-    // If the callback reports an amount, it must match the authoritative order total.
-    const reportedCents = Number(event.amount ?? NaN);
-    if (paid && Number.isFinite(reportedCents)) {
+    // New attempts store their external transaction ID as payment_reference.
+    // Ignore callbacks from an older retry, while still accepting callbacks for
+    // legacy orders that stored the provider paylink ID instead.
+    if (
+      typeof order.payment_reference === 'string' &&
+      order.payment_reference.startsWith('roma-') &&
+      order.payment_reference !== externalId
+    ) {
+      return json({ received: true });
+    }
+
+    // iKhokha callbacks commonly contain status and externalTransactionID but
+    // may omit amount. When supplied, the amount must always match our order.
+    const reportedAmount = event.amount ?? event.transactionAmount;
+    if (paid && reportedAmount !== undefined) {
+      const reportedCents = Number(reportedAmount);
       const expectedCents = Math.round(Number(order.total) * 100);
-      if (Math.round(reportedCents) !== expectedCents) {
+      if (!Number.isFinite(reportedCents) || Math.round(reportedCents) !== expectedCents) {
         console.error('Webhook rejected: amount mismatch for order', orderId);
         return json({ error: 'Amount mismatch' }, 400);
       }
     }
 
-    const { error } = await admin
+    // Never let a late failed/pending callback undo a confirmed payment.
+    if (order.payment_status === 'paid') {
+      return json({ received: true });
+    }
+
+    const { data: updated, error } = await admin
       .from('orders')
       .update({
         payment_status: paid ? 'paid' : failed ? 'failed' : 'pending',
         paid_at: paid ? new Date().toISOString() : null,
       })
-      .eq('id', orderId);
+      .eq('id', orderId)
+      .eq('payment_method', 'card')
+      .neq('payment_status', 'paid')
+      .select('id')
+      .maybeSingle();
 
     if (error) {
       console.error('Webhook order update failed:', error.message);
       return json({ error: 'Update failed' }, 500);
     }
+
+    // A concurrent success may have won the update. It is safe to acknowledge
+    // the callback because the order is already in the desired terminal state.
+    if (!updated) return json({ received: true });
 
     return json({ received: true });
   } catch (err) {

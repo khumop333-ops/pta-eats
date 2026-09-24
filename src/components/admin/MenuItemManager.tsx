@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,29 +21,30 @@ const MenuItemManager = ({ restaurantId }: { restaurantId: number }) => {
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  const fetchItems = async () => {
+  const fetchItems = useCallback(async () => {
     const { data } = await supabase
       .from("menu_items")
       .select("*")
       .eq("restaurant_id", restaurantId)
       .order("category");
     setItems((data as MenuItemRow[]) || []);
-  };
+  }, [restaurantId]);
 
-  useEffect(() => { fetchItems(); }, [restaurantId]);
+  useEffect(() => { void fetchItems(); }, [fetchItems]);
 
   const handleSave = async () => {
-    if (!form.name || !form.price) {
-      toast.error("Name and price are required");
+    const price = Number(form.price);
+    if (!form.name.trim() || !Number.isFinite(price) || price <= 0) {
+      toast.error("Enter a name and a valid price greater than zero");
       return;
     }
 
     const payload = {
       restaurant_id: restaurantId,
-      name: form.name,
-      description: form.description,
-      price: parseFloat(form.price),
-      category: form.category || "Mains",
+      name: form.name.trim(),
+      description: form.description.trim(),
+      price,
+      category: form.category.trim() || "Mains",
     };
 
     if (editingId) {
@@ -58,7 +59,7 @@ const MenuItemManager = ({ restaurantId }: { restaurantId: number }) => {
 
     setForm(emptyForm);
     setEditingId(null);
-    fetchItems();
+    void fetchItems();
   };
 
   const handleEdit = (item: MenuItemRow) => {
@@ -67,10 +68,11 @@ const MenuItemManager = ({ restaurantId }: { restaurantId: number }) => {
   };
 
   const handleDelete = async (id: string) => {
+    if (!window.confirm("Delete this menu item?")) return;
     const { error } = await supabase.from("menu_items").delete().eq("id", id);
     if (error) { toast.error("Failed to delete"); return; }
     toast.success("Item deleted");
-    fetchItems();
+    void fetchItems();
   };
 
   const categories = [...new Set(items.map((i) => i.category))];
@@ -125,10 +127,10 @@ const MenuItemManager = ({ restaurantId }: { restaurantId: number }) => {
                     <span className="ml-2 text-xs text-muted-foreground">R {Number(item.price).toFixed(2)}</span>
                   </div>
                   <div className="flex gap-1">
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEdit(item)}>
+                    <Button variant="ghost" size="icon" aria-label={`Edit ${item.name}`} className="h-7 w-7" onClick={() => handleEdit(item)}>
                       <Pencil className="h-3 w-3" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(item.id)}>
+                    <Button variant="ghost" size="icon" aria-label={`Delete ${item.name}`} className="h-7 w-7 text-destructive" onClick={() => { void handleDelete(item.id); }}>
                       <Trash2 className="h-3 w-3" />
                     </Button>
                   </div>

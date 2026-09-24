@@ -10,12 +10,26 @@ const RestaurantPage = () => {
   const { id } = useParams();
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    fetchRestaurantById(Number(id)).then((data) => {
-      setRestaurant(data);
-      setLoading(false);
-    });
+    let active = true;
+    setLoading(true);
+    setFailed(false);
+    fetchRestaurantById(Number(id))
+      .then((data) => {
+        if (!active) return;
+        setRestaurant(data);
+      })
+      .catch(() => {
+        if (active) setFailed(true);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [id]);
 
   if (loading) {
@@ -23,6 +37,19 @@ const RestaurantPage = () => {
       <div className="min-h-screen bg-background">
         <Header />
         <div className="container mx-auto py-24 text-center text-muted-foreground">Loading...</div>
+      </div>
+    );
+  }
+
+  if (failed) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <div className="container mx-auto flex flex-col items-center justify-center py-24 text-center">
+          <h1 className="font-display text-3xl font-bold text-foreground">We couldn’t load this restaurant</h1>
+          <p className="mt-2 text-muted-foreground">Please refresh and try again.</p>
+          <Link to="/" className="mt-4 text-primary underline">Back to home</Link>
+        </div>
       </div>
     );
   }

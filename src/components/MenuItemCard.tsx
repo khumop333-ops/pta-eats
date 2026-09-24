@@ -2,6 +2,7 @@ import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useCart } from "@/context/CartContext";
 import type { MenuItem } from "@/data/restaurants";
+import { toast } from "sonner";
 
 interface MenuItemCardProps {
   item: MenuItem;
@@ -9,7 +10,15 @@ interface MenuItemCardProps {
 }
 
 const MenuItemCard = ({ item, restaurantId }: MenuItemCardProps) => {
-  const { addItem } = useCart();
+  const { addItem, restaurantId: cartRestaurantId } = useCart();
+
+  const handleAdd = () => {
+    if (cartRestaurantId !== null && cartRestaurantId !== restaurantId) {
+      toast.error("You can only order from one restaurant at a time.");
+      return;
+    }
+    addItem({ id: item.id, name: item.name, price: item.price, restaurantId });
+  };
 
   return (
     <div className="flex items-center justify-between gap-4 rounded-lg border bg-card p-4 transition-shadow hover:shadow-md">
@@ -20,7 +29,7 @@ const MenuItemCard = ({ item, restaurantId }: MenuItemCardProps) => {
       </div>
       <Button
         size="sm"
-        onClick={() => addItem({ id: item.id, name: item.name, price: item.price, restaurantId })}
+        onClick={handleAdd}
         className="shrink-0"
       >
         <Plus className="mr-1 h-4 w-4" /> Add

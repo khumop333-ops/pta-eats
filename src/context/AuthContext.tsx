@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
-import { Session, User } from "@supabase/supabase-js";
-import { supabase } from "@/integrations/supabase/client";
+import type { Session, User } from "@supabase/supabase-js";
+import { getSupabase } from "@/integrations/supabase/lazyClient";
 
 interface Profile {
   full_name: string | null;
@@ -24,6 +24,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState(true);
 
   const fetchProfile = async (userId: string) => {
+    const supabase = await getSupabase();
     const { data } = await supabase
       .from("profiles")
       .select("full_name, phone_number")
@@ -37,32 +38,45 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        setSession(session);
+    let active = true;
+    let unsubscribe: (() => void) | undefined;
+
+    const initialize = async () => {
+      const supabase = await getSupabase();
+      if (!active) return;
+
+      const { data: authState } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+        if (!active) return;
+        setSession(nextSession);
         setLoading(false);
-        if (session?.user) {
-          // defer other supabase calls to avoid deadlocking the auth callback
-          setTimeout(() => { fetchProfile(session.user.id); }, 0);
+        if (nextSession?.user) {
+          setTimeout(() => {
+            if (active) void fetchProfile(nextSession.user.id);
+          }, 0);
         } else {
           setProfile(null);
         }
-      }
-    );
+      });
+      unsubscribe = () => authState.subscription.unsubscribe();
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!active) return;
+      setSession(sessionData.session);
       setLoading(false);
-      if (session?.user) {
-        setTimeout(() => { fetchProfile(session.user.id); }, 0);
+      if (sessionData.session?.user) {
+        void fetchProfile(sessionData.session.user.id);
       }
-    });
+    };
 
-    return () => subscription.unsubscribe();
+    void initialize();
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
   }, []);
 
-
   const signOut = async () => {
+    const supabase = await getSupabase();
     await supabase.auth.signOut();
     setSession(null);
     setProfile(null);
