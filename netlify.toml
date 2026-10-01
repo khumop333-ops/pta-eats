@@ -1,0 +1,9 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# SPA fallback: any route that doesn't match a static file should serve index.html
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

@@ -1,0 +1,7 @@
+/*
+ * For Vercel deployment (already used by vercel.json).
+ * For Cloudflare Pages, public/_redirects handles SPA routing.
+ * For Netlify, netlify.toml + public/_redirects both work.
+ * For Apache/cPanel hosting, use .htaccess (rename htaccess.example -> .htaccess).
+ * For Nginx, see nginx.example.conf.
+ */
