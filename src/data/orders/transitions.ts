@@ -13,12 +13,39 @@
  * something a rider on a 3G connection can actually act on.
  */
 import { supabase } from '@/integrations/supabase/client'
-import type { OrderStatus } from '@/domain/order/status'
+import { isOrderStatus, type OrderStatus } from '@/domain/order/status'
+import type {
+  ClaimOutcome,
+  TransitionOutcome,
+} from '@/domain/order/transition'
 import type { QuoteResult, ServiceAvailability } from '@/domain/order/pricing'
 
-export type ActionResult =
-  | { ok: true }
-  | { ok: false; message: string }
+// Re-exported so existing call sites can keep importing the outcome types from
+// the data layer they already use. The single definition lives in the domain.
+export type { ClaimOutcome, TransitionOutcome } from '@/domain/order/transition'
+
+/**
+ * The jsonb envelopes returned by the RPCs.
+ *
+ * `unknown` for the order body is deliberate: this is untrusted wire data and the
+ * only field this layer is entitled to interpret is the status, which it narrows
+ * with isOrderStatus().
+ */
+interface TransitionEnvelope {
+  ok: boolean
+  alreadyApplied?: boolean
+  error?: string
+  currentStatus?: unknown
+  expectedFrom?: unknown
+  order?: unknown
+}
+
+interface ClaimEnvelope {
+  ok: boolean
+  alreadyClaimed?: boolean
+  error?: string
+  order?: unknown
+}
 
 /**
  * Postgres error code -> operator-facing copy.
@@ -44,29 +71,91 @@ function explain(rawMessage: string): string {
   return match ? match[1] : "Couldn't update the order. Check your connection and try again."
 }
 
-/** Move an order to `to`, or explain why that isn't allowed. */
-export async function transitionOrderStatus(
-  orderId: string,
-  to: OrderStatus
-): Promise<ActionResult> {
-  const { error } = await supabase.rpc('transition_order_status', {
-    p_order_id: orderId,
-    p_to: to,
-  })
-
-  if (!error) return { ok: true }
-  return { ok: false, message: explain(error.message ?? '') }
+/**
+ * Narrow a status arriving from the database.
+ *
+ * Returns null rather than throwing: this value is only ever used to TELL the
+ * user where the order is. Refusing to render a reconciliation because the
+ * database reported a status this build does not know about would turn a
+ * cosmetic version skew into a hard failure — exactly what an offline queue must
+ * not do.
+ */
+function narrowStatus(value: unknown): OrderStatus | null {
+  return isOrderStatus(value) ? value : null
 }
 
 /**
- * Claim a ready order. Atomic server-side via FOR UPDATE SKIP LOCKED, so two
- * riders tapping at once means exactly one wins.
+ * Move an order to `to`.
+ *
+ * `expectedFrom` is the status the CALLER believes the order is in — normally the
+ * one it rendered. Pass it and the database performs a compare-and-swap: the
+ * update only applies if the order is still there, so a stale view cannot
+ * silently overwrite a change made elsewhere. Pass `null` to have the server
+ * validate against the order's current state instead (the strict path).
+ *
+ * The parameter is required and explicitly nullable so that every call site
+ * states which of the two it means. A defaulted parameter here would let the
+ * queue silently fall back to the weaker check.
+ *
+ * Never throws for an expected condition. A returned `conflict` is a normal
+ * outcome of an offline queue draining against a world that moved on.
  */
-export async function claimOrder(orderId: string): Promise<ActionResult> {
-  const { error } = await supabase.rpc('claim_order', { p_order_id: orderId })
+export async function transitionOrderStatus(
+  orderId: string,
+  to: OrderStatus,
+  expectedFrom: OrderStatus | null
+): Promise<TransitionOutcome> {
+  const { data, error } = await supabase.rpc('transition_order_status', {
+    p_order_id: orderId,
+    p_to: to,
+    // Sent as an explicit null rather than omitted: the SQL treats NULL as the
+    // strict path, and being explicit keeps the wire payload shape stable.
+    p_expected_from: expectedFrom,
+  })
 
-  if (!error) return { ok: true }
-  return { ok: false, message: explain(error.message ?? '') }
+  if (error) return { ok: false, kind: 'refused', message: explain(error.message ?? '') }
+
+  const envelope = data as unknown as TransitionEnvelope | null
+  if (!envelope) {
+    return { ok: false, kind: 'refused', message: explain('') }
+  }
+
+  if (envelope.ok) {
+    return { ok: true, alreadyApplied: envelope.alreadyApplied === true }
+  }
+
+  // ok:false with error:'conflict' is the compare-and-swap miss. Anything else
+  // (or a malformed envelope) is treated as a refusal so it is never silently
+  // swallowed by the queue as "already done".
+  if (envelope.error === 'conflict') {
+    return {
+      ok: false,
+      kind: 'conflict',
+      currentStatus: narrowStatus(envelope.currentStatus),
+      expectedFrom: narrowStatus(envelope.expectedFrom),
+    }
+  }
+
+  return { ok: false, kind: 'refused', message: explain(envelope.error ?? '') }
+}
+
+/**
+ * Claim a ready order.
+ *
+ * Atomic server-side via FOR UPDATE SKIP LOCKED, so two riders tapping at once
+ * means exactly one wins. Replay-safe: a rider whose acknowledgement was lost
+ * gets `alreadyClaimed: true` instead of "another rider just took this job",
+ * which would make them abandon a delivery that is genuinely theirs.
+ */
+export async function claimOrder(orderId: string): Promise<ClaimOutcome> {
+  const { data, error } = await supabase.rpc('claim_order', { p_order_id: orderId })
+
+  if (error) return { ok: false, kind: 'refused', message: explain(error.message ?? '') }
+
+  const envelope = data as unknown as ClaimEnvelope | null
+  if (envelope?.ok) return { ok: true, alreadyClaimed: envelope.alreadyClaimed === true }
+
+  return { ok: false, kind: 'refused', message: explain(envelope?.error ?? '') }
 }
 
 /** A job as a rider sees it before accepting: no customer PII. */

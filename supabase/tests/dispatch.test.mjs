@@ -9,62 +9,35 @@
  * found four defects that reading did not (see the header of
  * 20261005120000_dispatch_core.sql and docs/DISPATCH-MIGRATION-RUNBOOK.md).
  *
- * WHAT THIS DOES NOT COVER — stated plainly so nobody over-trusts it:
- *   - Concurrency. PGlite is single-connection, so FOR UPDATE SKIP LOCKED is
- *     exercised for correctness of its WHERE clause and NOT_FOUND path, but no
- *     true two-session race is simulated. That must be tested against real
- *     Supabase with two clients before go-live.
- *   - Supabase's actual auth stack. auth.uid() is shimmed from a GUC.
- *   - PostgREST behaviour. Functions are called directly, so any wire-format
- *     ambiguity (e.g. composite return types) is not reproduced here. This is
- *     exactly why the RPCs return jsonb rather than composites.
+ * Coverage caveats (no true concurrency, shimmed auth, no PostgREST) are documented
+ * once in supabase/tests/_harness.mjs rather than repeated here.
  */
-import { PGlite } from '@electric-sql/pglite'
-import { readFileSync, readdirSync } from 'node:fs'
-import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import {
+  DISPATCH,
+  OFFLINE,
+  PRICING,
+  applyFiles,
+  asUser,
+  assertAuthShimWorks,
+  baselineFiles,
+  createShimmedDb,
+  grantClientPrivileges,
+  installCrashHandler,
+  makeReporter,
+} from './_harness.mjs'
 
-// Resolve the repo root from this file's location so the test runs anywhere.
-const REPO = fileURLToPath(new URL('../..', import.meta.url))
-const MIGRATIONS = join(REPO, 'supabase/migrations')
-// Migrations UNDER TEST, applied in order after the baseline so the suite can
-// seed legacy data first and then prove the migrations convert it.
-// Listed explicitly rather than auto-detected: a new migration silently joining
-// the baseline would quietly stop being tested against legacy state.
-const UNDER_TEST = [
-  '20261005120000_dispatch_core.sql',
-  '20261005140000_pricing_and_service_window.sql',
-]
+installCrashHandler()
 
-let passed = 0
-const failures = []
+// This suite covers dispatch + pricing + the replay-safe RPC signatures, against
+// the FINAL schema (all three migrations applied) rather than an intermediate
+// state that never exists in production. CAS-specific behaviour — idempotent
+// replay, conflict reporting — lives in offline-replay.test.mjs.
+// All three are held back from the baseline so this suite can seed legacy data
+// first and then prove the migrations convert it.
+const UNDER_TEST = [DISPATCH, PRICING, OFFLINE]
 
-function ok(name, condition, detail = '') {
-  if (condition) {
-    passed++
-    console.log(`  \x1b[32mPASS\x1b[0m ${name}`)
-  } else {
-    failures.push(name)
-    console.log(`  \x1b[31mFAIL\x1b[0m ${name}${detail ? ` — ${detail}` : ''}`)
-  }
-}
-
-async function rejects(name, sql, expectFragment) {
-  try {
-    await db.exec(sql)
-    ok(name, false, 'statement SUCCEEDED but should have been rejected')
-  } catch (e) {
-    const msg = String(e.message ?? e).split('\n')[0]
-    ok(name, msg.includes(expectFragment), `rejected with "${msg.slice(0, 110)}" not "${expectFragment}"`)
-  }
-}
-
-process.on('uncaughtException', (e) => {
-  console.error('\n\x1b[31mUNCAUGHT:\x1b[0m ' + String(e.message).split('\n')[0])
-  process.exit(1)
-})
-
-const db = new PGlite()
+const db = await createShimmedDb()
+const { ok, rejects, summary, failures } = makeReporter(db)
 
 const CUST     = '11111111-1111-1111-1111-111111111111'
 const DRIVER_A = '22222222-2222-2222-2222-222222222222'
@@ -72,8 +45,6 @@ const DRIVER_B = '33333333-3333-3333-3333-333333333333'
 const VENDOR   = '44444444-4444-4444-4444-444444444444'
 const READY_ORDER  = 'aaaaaaaa-0000-0000-0000-000000000004'
 const PENDING_ORDER = 'aaaaaaaa-0000-0000-0000-000000000001'
-
-const asUser = (uid) => `SELECT set_config('request.jwt.claim.sub','${uid}',false);`
 
 /** Independent JS computation of the SAST service window, to cross-check the SQL. */
 function sastInWindow() {
@@ -85,55 +56,14 @@ function sastInWindow() {
 
 // ---------------------------------------------------------------------------
 console.log('\n\x1b[1m1. Supabase shim\x1b[0m')
-await db.exec(`
-  CREATE SCHEMA IF NOT EXISTS auth;
-  CREATE SCHEMA IF NOT EXISTS storage;
-
-  CREATE TABLE IF NOT EXISTS auth.users (
-    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    email text UNIQUE,
-    raw_user_meta_data jsonb DEFAULT '{}'::jsonb,
-    phone text
-  );
-  CREATE TABLE IF NOT EXISTS storage.buckets (
-    id text PRIMARY KEY, name text NOT NULL, public boolean DEFAULT false
-  );
-  CREATE TABLE IF NOT EXISTS storage.objects (
-    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    bucket_id text, name text, owner uuid
-  );
-
-  CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
-    SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid
-  $$;
-
-  DO $$ BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname='supabase_realtime') THEN
-      CREATE PUBLICATION supabase_realtime;
-    END IF;
-  END $$;
-
-  DO $$ BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon NOLOGIN NOINHERIT; END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated NOLOGIN NOINHERIT; END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN CREATE ROLE service_role NOLOGIN NOINHERIT BYPASSRLS; END IF;
-  END $$;
-`)
-console.log('  auth.uid(), anon/authenticated/service_role, supabase_realtime publication ready')
+// Assert the shim authenticates BEFORE trusting any result below.
+await assertAuthShimWorks(db, DRIVER_A)
+console.log('  auth.uid() resolves from the session GUC; roles + realtime publication ready')
 
 // ---------------------------------------------------------------------------
 console.log('\n\x1b[1m2. Baseline migration chain (migrations under test held back)\x1b[0m')
-const baseline = readdirSync(MIGRATIONS)
-  .filter((f) => f.endsWith('.sql') && !UNDER_TEST.includes(f))
-  .sort()
-for (const f of baseline) {
-  try {
-    await db.exec(readFileSync(join(MIGRATIONS, f), 'utf8'))
-  } catch (e) {
-    console.log(`  \x1b[31mERR\x1b[0m ${f}: ${String(e.message).split('\n')[0]}`)
-    process.exit(1)
-  }
-}
+const baseline = baselineFiles(UNDER_TEST)
+await applyFiles(db, baseline)
 console.log(`  \x1b[32m${baseline.length} migrations applied\x1b[0m`)
 
 // ---------------------------------------------------------------------------
@@ -171,15 +101,7 @@ ok('every live status maps to the canonical set', unmapped.length === 0, `unmapp
 
 // ---------------------------------------------------------------------------
 console.log('\n\x1b[1m5. Apply the migrations under test, in deploy order\x1b[0m')
-for (const f of UNDER_TEST) {
-  try {
-    await db.exec(readFileSync(join(MIGRATIONS, f), 'utf8'))
-    console.log(`  \x1b[32m ok \x1b[0m ${f}`)
-  } catch (e) {
-    console.log(`  \x1b[31mAPPLY FAILED\x1b[0m ${f}: ` + String(e.message).split('\n').slice(0, 3).join(' | '))
-    process.exit(1)
-  }
-}
+await applyFiles(db, UNDER_TEST)
 const after = await db.query(`SELECT status, count(*)::int n FROM public.orders GROUP BY status ORDER BY status`)
 console.log('  after backfill: ' + after.rows.map((r) => `${r.status}(${r.n})`).join(' '))
 
@@ -240,9 +162,10 @@ await db.exec(`CREATE OR REPLACE FUNCTION public.is_within_service_window()
 
 await db.exec(`${asUser(DRIVER_A)}`)
 const claim = await db.query(`SELECT public.claim_order('${READY_ORDER}') o`)
-ok('driver A claims the ready order', claim.rows[0].o.deliverer_id === DRIVER_A)
-ok('claim sets status=assigned', claim.rows[0].o.status === 'assigned')
-ok('claim stamps assigned_at', claim.rows[0].o.assigned_at !== null)
+ok('driver A claims the ready order', claim.rows[0].o.order.deliverer_id === DRIVER_A)
+ok('claim sets status=assigned', claim.rows[0].o.order.status === 'assigned')
+ok('claim stamps assigned_at', claim.rows[0].o.order.assigned_at !== null)
+ok('a fresh claim is not reported as a replay', claim.rows[0].o.alreadyClaimed === false)
 
 await rejects('driver B cannot double-claim the same order',
   `${asUser(DRIVER_B)} SELECT public.claim_order('${READY_ORDER}');`, 'order_unavailable')
@@ -262,12 +185,12 @@ await rejects("driver B cannot touch driver A's order",
 
 await db.exec(`${asUser(DRIVER_A)}`)
 const pickedUp = await db.query(`SELECT public.transition_order_status('${READY_ORDER}','picked_up') r`)
-ok('driver A CAN move assigned -> picked_up (happy path)', pickedUp.rows[0].r.status === 'picked_up')
-ok('picked_up_at stamped', pickedUp.rows[0].r.picked_up_at !== null)
+ok('driver A CAN move assigned -> picked_up (happy path)', pickedUp.rows[0].r.order.status === 'picked_up')
+ok('picked_up_at stamped', pickedUp.rows[0].r.order.picked_up_at !== null)
 
 const delivered = await db.query(`SELECT public.transition_order_status('${READY_ORDER}','delivered') r`)
-ok('driver A CAN move picked_up -> delivered (happy path)', delivered.rows[0].r.status === 'delivered')
-ok('delivered_at stamped', delivered.rows[0].r.delivered_at !== null)
+ok('driver A CAN move picked_up -> delivered (happy path)', delivered.rows[0].r.order.status === 'delivered')
+ok('delivered_at stamped', delivered.rows[0].r.order.delivered_at !== null)
 
 // The deliverer must not be able to re-open a delivered order.
 await rejects('delivered is terminal for the deliverer',
@@ -282,7 +205,7 @@ await rejects('customer cannot accept an order (vendor-only) — actor_not_permi
 
 await db.exec(`${asUser(VENDOR)}`)
 const accepted = await db.query(`SELECT public.transition_order_status('${PENDING_ORDER}','accepted') r`)
-ok('vendor CAN accept a pending order (happy path)', accepted.rows[0].r.status === 'accepted')
+ok('vendor CAN accept a pending order (happy path)', accepted.rows[0].r.order.status === 'accepted')
 
 // ---------------------------------------------------------------------------
 console.log('\n\x1b[1m12. Redacted job board\x1b[0m')
@@ -322,11 +245,9 @@ for (const r of pol.rows) console.log(`  ${r.polname}\n      USING ${r.using_exp
 const unscoped = pol.rows.filter((r) => /deliverer/i.test(r.polname) && r.using_expr && !/deliverer_id/.test(r.using_expr))
 ok('no deliverer policy is unscoped', unscoped.length === 0, `unscoped: ${unscoped.map((r) => r.polname).join(', ')}`)
 
-await db.exec(`
-  GRANT USAGE ON SCHEMA public TO anon, authenticated;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO authenticated;
-  GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon;
-`)
+// Supabase grants these to `authenticated` by default; mirror that so the RLS
+// assertions below run as the client role.
+await grantClientPrivileges(db)
 
 // Driver A has exactly one order (the one claimed then delivered).
 await db.exec(`${asUser(DRIVER_A)} SET ROLE authenticated;`)
@@ -571,9 +492,4 @@ try {
   ok('the rejection names the canonical values', msg.includes('pending') && msg.includes('lowercase'))
 }
 
-console.log(`\n\x1b[1mResult: ${passed} passed, ${failures.length} failed\x1b[0m`)
-if (failures.length) {
-  console.log('\x1b[31mFailures:\x1b[0m')
-  for (const f of failures) console.log('  - ' + f)
-}
-process.exit(failures.length ? 1 : 0)
+process.exit(summary() ? 1 : 0)

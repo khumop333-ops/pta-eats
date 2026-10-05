@@ -281,8 +281,21 @@ export type Database = {
         Args: { p_order_id: string }
         Returns: Json
       }
+      // 3-arg CAS form (20261005160000_offline_safe_transitions.sql).
+      // p_expected_from is optional on the wire because the SQL declares
+      // DEFAULT NULL; when omitted the RPC takes its strict path and validates
+      // against the order's CURRENT state rather than a caller expectation.
+      //
+      // The old 2-arg overload was DROPped by that migration. Leaving both in
+      // place would make every 2-argument call ambiguous ("function ... is not
+      // unique") and take the whole dispatch flow down — verified in
+      // supabase/tests/offline-replay.test.mjs section 7.
       transition_order_status: {
-        Args: { p_order_id: string; p_to: string }
+        Args: {
+          p_order_id: string
+          p_to: string
+          p_expected_from?: string | null
+        }
         Returns: Json
       }
       list_open_jobs: {

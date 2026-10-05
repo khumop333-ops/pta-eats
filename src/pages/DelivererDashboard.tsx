@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { claimOrder, transitionOrderStatus } from "@/data/orders/transitions";
+import { describeTransition } from "@/domain/order/transition";
 import {
   TONE_CLASS,
   actionLabel,
@@ -120,14 +121,20 @@ const DelivererDashboard = () => {
 
   // Goes through the database state machine. A direct UPDATE would be silently
   // dropped by RLS or rejected by the transition trigger.
-  const updateStatus = async (orderId: string, newStatus: OrderStatus) => {
-    const result = await transitionOrderStatus(orderId, newStatus);
-    if (!result.ok) {
-      toast.error(result.message);
-      return;
-    }
-    toast.success(`Order marked ${statusLabel(newStatus).toLowerCase()}`);
-    fetchOrders();
+  //
+  // expectedFrom is what this rider's screen showed. On a patchy connection that
+  // is routinely stale, so the CAS is what stops a rider from applying a step
+  // that no longer makes sense — and a conflict tells them where the order
+  // actually is rather than reporting a failure.
+  const updateStatus = async (
+    orderId: string,
+    expectedFrom: OrderStatus,
+    newStatus: OrderStatus
+  ) => {
+    const result = await transitionOrderStatus(orderId, newStatus, expectedFrom);
+    const feedback = describeTransition(result, newStatus);
+    toast[feedback.tone](feedback.message);
+    if (feedback.refresh || feedback.applied) fetchOrders();
   };
 
   const handleClaim = async (orderId: string) => {
@@ -239,7 +246,7 @@ function OrderCard({
   onOpenMaps,
 }: {
   order: Order;
-  onUpdateStatus: (id: string, status: OrderStatus) => void;
+  onUpdateStatus: (id: string, expectedFrom: OrderStatus, to: OrderStatus) => void;
   onOpenMaps: (address: string) => void;
 }) {
   const isCompleted = !isActive(order.status);
@@ -329,7 +336,7 @@ function OrderCard({
                 key={next}
                 size="sm"
                 variant={next === "failed" ? "outline" : "default"}
-                onClick={() => onUpdateStatus(order.id, next)}
+                onClick={() => onUpdateStatus(order.id, order.status, next)}
               >
                 {actionLabel(next)}
               </Button>

@@ -11,7 +11,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:db": "node supabase/tests/dispatch.test.mjs",
+    "test:db": "node supabase/tests/dispatch.test.mjs && node supabase/tests/offline-replay.test.mjs",
     "verify": "npm run lint && npx tsc --noEmit -p tsconfig.app.json && npx vitest run && npm run test:db"
   },
   "dependencies": {

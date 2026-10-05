@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAdminAuth } from "@/context/AdminAuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { transitionOrderStatus } from "@/data/orders/transitions";
+import { describeTransition } from "@/domain/order/transition";
 import {
   TONE_CLASS,
   actionLabel,
@@ -119,13 +120,24 @@ const AdminDashboard = () => {
   // Admin accounts act as 'system' (see current_actor() in the dispatch
   // migration). Routing through the RPC keeps the transitions table as the
   // single authority instead of writing status strings straight into the row.
-  const updateStatus = async (orderId: string, newStatus: OrderStatus) => {
-    const result = await transitionOrderStatus(orderId, newStatus);
+  //
+  // expectedFrom is the status this screen RENDERED. Sending it makes the update
+  // a compare-and-swap, so a second admin acting on a stale table gets told the
+  // order moved instead of silently overwriting the first admin's change.
+  const updateStatus = async (
+    orderId: string,
+    expectedFrom: OrderStatus,
+    newStatus: OrderStatus
+  ) => {
+    const result = await transitionOrderStatus(orderId, newStatus, expectedFrom);
+    const feedback = describeTransition(result, newStatus);
+    toast[feedback.tone](feedback.message);
 
-    if (!result.ok) {
-      toast.error(result.message);
-    } else {
-      toast.success(`Order marked as ${statusLabel(newStatus).toLowerCase()}`);
+    if (feedback.refresh) {
+      fetchOrders();
+      return;
+    }
+    if (feedback.applied) {
       setOrders((prev) =>
         prev.map((o) => (o.id === orderId ? { ...o, status: newStatus } : o))
       );
@@ -266,7 +278,7 @@ const AdminDashboard = () => {
                               key={next}
                               size="sm"
                               variant={next === "cancelled" ? "outline" : "default"}
-                              onClick={() => updateStatus(order.id, next)}
+                              onClick={() => updateStatus(order.id, order.status, next)}
                             >
                               {actionLabel(next)}
                             </Button>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { transitionOrderStatus } from "@/data/orders/transitions";
+import { describeTransition } from "@/domain/order/transition";
 import {
   TONE_CLASS,
   actionLabel,
@@ -114,11 +115,19 @@ export default function OwnerDashboard() {
   // Owners act as actor='vendor'. This previously wrote status straight into the
   // row, which bypassed the state machine entirely — an owner could jump an order
   // to any status including 'delivered'.
-  const updateStatus = async (orderId: string, status: OrderStatus) => {
-    const result = await transitionOrderStatus(orderId, status);
-    if (!result.ok) { toast.error(result.message); return; }
-    toast.success(`Order marked ${statusLabel(status).toLowerCase()}`);
-    if (restaurant) loadOrders(restaurant.id);
+  //
+  // expectedFrom is the status rendered on this card. A busy kitchen runs several
+  // screens against the same order, so the compare-and-swap is what prevents two
+  // of them from both acting on the same stale view.
+  const updateStatus = async (
+    orderId: string,
+    expectedFrom: OrderStatus,
+    status: OrderStatus
+  ) => {
+    const result = await transitionOrderStatus(orderId, status, expectedFrom);
+    const feedback = describeTransition(result, status);
+    toast[feedback.tone](feedback.message);
+    if ((feedback.refresh || feedback.applied) && restaurant) loadOrders(restaurant.id);
   };
 
   const handleLogout = async () => {
@@ -224,7 +233,7 @@ export default function OwnerDashboard() {
                         key={s}
                         size="sm"
                         variant={s === "cancelled" ? "outline" : "default"}
-                        onClick={() => updateStatus(order.id, s)}
+                        onClick={() => updateStatus(order.id, order.status, s)}
                       >
                         {actionLabel(s)}
                       </Button>
