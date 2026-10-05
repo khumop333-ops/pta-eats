@@ -158,7 +158,7 @@ Primary is orange; green is secondary. The typography pair is the stock Lovable 
 
 `complete_codebase.txt` (293 KB) is a Lovable-style generated dump of the entire codebase, tracked in Git. It duplicates the source, will silently drift out of sync, and is meaningless to a reviewer. `bun.lockb` is committed alongside `bun.lock` and `package-lock.json` — three lockfiles for one project, which will produce divergent dependency trees across machines. `.env` is tracked despite being listed in `.gitignore` (committed before the ignore rule existed).
 
-Also: one migration (`20260307212742`) is **0 bytes** — a no-op filename that misleads anyone reading the migration history for intent.
+Also: `20260307212742` appeared to be an empty migration in my initial pass — `wc -l` reported 0. **That was wrong**: the file is 60 bytes with **no trailing newline**, so `wc -l` counts zero lines. It contains `ALTER PUBLICATION supabase_realtime ADD TABLE public.orders;`, which is load-bearing — it is how live order updates reach every dashboard. Reading line counts instead of bytes nearly caused me to write off a functional migration as dead weight. (Surfaced by the PGlite harness in §11, not by reading.)
 
 ---
 

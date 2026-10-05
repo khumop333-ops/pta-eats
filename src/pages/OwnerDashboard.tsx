@@ -1,5 +1,15 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { transitionOrderStatus } from "@/data/orders/transitions";
+import {
+  TONE_CLASS,
+  actionLabel,
+  assertOrderStatus,
+  nextStatusesFor,
+  statusLabel,
+  statusTone,
+  type OrderStatus,
+} from "@/domain/order/status";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -27,17 +37,16 @@ interface OrderRow {
   subtotal: number;
   delivery_fee: number;
   total: number;
-  status: string;
+  status: OrderStatus;
   payment_method: string;
   payment_status: string;
   created_at: string;
   order_items?: { id: string; item_name: string; item_price: number; quantity: number }[];
 }
 
-const STATUSES = ["New", "Preparing", "Ready", "Picked Up", "On the Way", "Delivered"];
-
-const statusVariant = (status: string) =>
-  status === "New" ? "default" : status === "Delivered" ? "secondary" : "outline";
+// STATUSES previously listed "On the Way" — a value that has never existed in
+// the database. Rather than correct it, the buttons below are derived from the
+// real transition table, so an invalid status cannot be offered or submitted.
 
 export default function OwnerDashboard() {
   const navigate = useNavigate();
@@ -51,7 +60,14 @@ export default function OwnerDashboard() {
       .select("*, order_items(*)")
       .eq("restaurant_id", restaurantId)
       .order("created_at", { ascending: false });
-    setOrders((data as unknown as OrderRow[]) || []);
+    // The relation query is cast (pre-existing); status is additionally forced
+    // through the canonical guard so the union is real rather than asserted.
+    setOrders(
+      ((data as unknown as OrderRow[]) || []).map((o) => ({
+        ...o,
+        status: assertOrderStatus(o.status, "order"),
+      }))
+    );
   };
 
   useEffect(() => {
@@ -95,10 +111,13 @@ export default function OwnerDashboard() {
     return () => { if (channel) supabase.removeChannel(channel); };
   }, [navigate]);
 
-  const updateStatus = async (orderId: string, status: string) => {
-    const { error } = await supabase.from("orders").update({ status }).eq("id", orderId);
-    if (error) { toast.error("Could not update the order"); return; }
-    toast.success(`Order marked ${status}`);
+  // Owners act as actor='vendor'. This previously wrote status straight into the
+  // row, which bypassed the state machine entirely — an owner could jump an order
+  // to any status including 'delivered'.
+  const updateStatus = async (orderId: string, status: OrderStatus) => {
+    const result = await transitionOrderStatus(orderId, status);
+    if (!result.ok) { toast.error(result.message); return; }
+    toast.success(`Order marked ${statusLabel(status).toLowerCase()}`);
     if (restaurant) loadOrders(restaurant.id);
   };
 
@@ -125,7 +144,7 @@ export default function OwnerDashboard() {
     );
   }
 
-  const newCount = orders.filter((o) => o.status === "New").length;
+  const newCount = orders.filter((o) => o.status === "pending").length;
 
   return (
     <div className="min-h-screen bg-background">
@@ -170,7 +189,9 @@ export default function OwnerDashboard() {
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant={statusVariant(order.status)}>{order.status}</Badge>
+                      <Badge variant="outline" className={TONE_CLASS[statusTone(order.status)]}>
+                        {statusLabel(order.status)}
+                      </Badge>
                       <Badge variant="outline">
                         {order.payment_method === "cash" ? "Cash" : "Card"} ·{" "}
                         {order.payment_status === "paid" ? "Paid" : "Unpaid"}
@@ -198,9 +219,14 @@ export default function OwnerDashboard() {
                   </div>
 
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {STATUSES.filter((s) => s !== order.status).map((s) => (
-                      <Button key={s} size="sm" variant="outline" onClick={() => updateStatus(order.id, s)}>
-                        {s}
+                    {nextStatusesFor(order.status, "vendor").map((s) => (
+                      <Button
+                        key={s}
+                        size="sm"
+                        variant={s === "cancelled" ? "outline" : "default"}
+                        onClick={() => updateStatus(order.id, s)}
+                      >
+                        {actionLabel(s)}
                       </Button>
                     ))}
                   </div>

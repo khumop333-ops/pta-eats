@@ -5,7 +5,17 @@ import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { claimOrder, transitionOrderStatus } from "@/data/orders/transitions";
+import {
+  TONE_CLASS,
+  actionLabel,
+  assertOrderStatus,
+  isActive,
+  nextStatusesFor,
+  statusLabel,
+  statusTone,
+  type OrderStatus,
+} from "@/domain/order/status";
 import { toast } from "sonner";
 import { Truck, MapPin, Phone, User, Package, LogOut, Navigation } from "lucide-react";
 
@@ -22,7 +32,7 @@ interface Order {
   phone_number: string;
   delivery_address: string;
   restaurant_name: string;
-  status: string;
+  status: OrderStatus;
   total: number;
   subtotal: number;
   delivery_fee: number;
@@ -31,24 +41,9 @@ interface Order {
   items: OrderItem[];
 }
 
-const STATUS_OPTIONS = [
-  "New",
-  "Accepted",
-  "Picked Up",
-  "On the Way",
-  "Delivered",
-];
-
-const statusColor = (status: string) => {
-  switch (status) {
-    case "New": return "bg-blue-100 text-blue-800 border-blue-200";
-    case "Accepted": return "bg-yellow-100 text-yellow-800 border-yellow-200";
-    case "Picked Up": return "bg-orange-100 text-orange-800 border-orange-200";
-    case "On the Way": return "bg-purple-100 text-purple-800 border-purple-200";
-    case "Delivered": return "bg-green-100 text-green-800 border-green-200";
-    default: return "bg-muted text-muted-foreground";
-  }
-};
+// Status presentation now comes from the domain module (statusTone + TONE_CLASS)
+// so that all three dashboards agree on wording and colour. The previous local
+// switch referenced "On the Way", a status that does not exist in the database.
 
 const DelivererDashboard = () => {
   const { user, loading: authLoading, signOut } = useAuth();
@@ -110,8 +105,12 @@ const DelivererDashboard = () => {
       .from("order_items")
       .select("*");
 
+    // Narrow status at the trust boundary. The database CHECK constraint makes
+    // this total; if it ever throws, the client and schema have drifted apart
+    // and we want to know loudly rather than render a wrong status.
     const mapped: Order[] = ordersData.map((o) => ({
       ...o,
+      status: assertOrderStatus(o.status, "order"),
       items: (allItems || []).filter((i) => i.order_id === o.id),
     }));
 
@@ -119,17 +118,26 @@ const DelivererDashboard = () => {
     setLoading(false);
   };
 
-  const updateStatus = async (orderId: string, newStatus: string) => {
-    const { error } = await supabase
-      .from("orders")
-      .update({ status: newStatus })
-      .eq("id", orderId);
-
-    if (error) {
-      toast.error("Failed to update status");
-    } else {
-      toast.success(`Status updated to "${newStatus}"`);
+  // Goes through the database state machine. A direct UPDATE would be silently
+  // dropped by RLS or rejected by the transition trigger.
+  const updateStatus = async (orderId: string, newStatus: OrderStatus) => {
+    const result = await transitionOrderStatus(orderId, newStatus);
+    if (!result.ok) {
+      toast.error(result.message);
+      return;
     }
+    toast.success(`Order marked ${statusLabel(newStatus).toLowerCase()}`);
+    fetchOrders();
+  };
+
+  const handleClaim = async (orderId: string) => {
+    const result = await claimOrder(orderId);
+    if (!result.ok) {
+      toast.error(result.message);
+      return;
+    }
+    toast.success("Job claimed");
+    fetchOrders();
   };
 
   const openMaps = (address: string) => {
@@ -150,8 +158,11 @@ const DelivererDashboard = () => {
     );
   }
 
-  const activeOrders = orders.filter((o) => o.status !== "Delivered");
-  const completedOrders = orders.filter((o) => o.status === "Delivered");
+  // isActive() also treats cancelled and failed as finished. The old
+  // `status !== "Delivered"` check counted a cancelled order as still active
+  // and would have nagged a rider about it indefinitely.
+  const activeOrders = orders.filter((o) => isActive(o.status));
+  const completedOrders = orders.filter((o) => !isActive(o.status));
 
   return (
     <div className="min-h-screen bg-background">
@@ -228,10 +239,10 @@ function OrderCard({
   onOpenMaps,
 }: {
   order: Order;
-  onUpdateStatus: (id: string, status: string) => void;
+  onUpdateStatus: (id: string, status: OrderStatus) => void;
   onOpenMaps: (address: string) => void;
 }) {
-  const isCompleted = order.status === "Delivered";
+  const isCompleted = !isActive(order.status);
 
   return (
     <Card className={isCompleted ? "opacity-70" : ""}>
@@ -243,8 +254,8 @@ function OrderCard({
               {new Date(order.created_at).toLocaleString()}
             </p>
           </div>
-          <Badge variant="outline" className={statusColor(order.status)}>
-            {order.status}
+          <Badge variant="outline" className={TONE_CLASS[statusTone(order.status)]}>
+            {statusLabel(order.status)}
           </Badge>
         </div>
       </CardHeader>
@@ -305,22 +316,24 @@ function OrderCard({
           </div>
         )}
 
-        {/* Status update */}
-        {!isCompleted && (
-          <div className="flex items-center gap-2">
-            <Select
-              value={order.status}
-              onValueChange={(val) => onUpdateStatus(order.id, val)}
-            >
-              <SelectTrigger className="flex-1">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {STATUS_OPTIONS.map((s) => (
-                  <SelectItem key={s} value={s}>{s}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        {/* Status actions.
+            This replaces a free-choice Select that listed every status, including
+            "On the Way" (which does not exist) and "Delivered" — meaning a rider
+            could mark an order delivered without ever confirming pickup. The
+            buttons below are derived from the same transition table the database
+            enforces, so the UI cannot offer a step the server will reject. */}
+        {!isCompleted && nextStatusesFor(order.status, "deliverer").length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            {nextStatusesFor(order.status, "deliverer").map((next) => (
+              <Button
+                key={next}
+                size="sm"
+                variant={next === "failed" ? "outline" : "default"}
+                onClick={() => onUpdateStatus(order.id, next)}
+              >
+                {actionLabel(next)}
+              </Button>
+            ))}
           </div>
         )}
       </CardContent>
