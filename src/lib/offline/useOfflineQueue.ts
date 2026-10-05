@@ -9,7 +9,7 @@
  * outside React and is tear-free, so two components reading the queue cannot
  * render inconsistent counts.
  */
-import { useEffect, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useSyncExternalStore } from 'react'
 import {
   clearQueue,
   drain,
@@ -40,7 +40,16 @@ export function useOfflineQueue(): QueueSnapshot {
  * by the time this fires, so nothing here can change what happened.
  */
 export function useQueueEvents(handler: (event: QueueEvent) => void): void {
-  useEffect(() => onQueueEvent(handler), [handler])
+  // The handler is stored in a ref and the subscription is made once. Subscribing
+  // with [handler] as the dependency would tear down and re-register on every
+  // render, and the indicator re-renders on every queue change — so the listener
+  // would churn precisely when the queue is busiest.
+  const latest = useRef(handler)
+  useEffect(() => {
+    latest.current = handler
+  })
+
+  useEffect(() => onQueueEvent((event) => latest.current(event)), [])
 }
 
 export const offlineQueue = {

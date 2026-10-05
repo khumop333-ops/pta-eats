@@ -10,7 +10,7 @@
  *   pending > 0        - changes are held and will send on their own
  *   stalled > 0        - automatic retries gave up; a human must act
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AlertTriangle, CloudOff, RefreshCw, UploadCloud } from 'lucide-react'
 import { toast } from 'sonner'
 import { useOfflineQueue, useQueueEvents } from '@/lib/offline/useOfflineQueue'
@@ -44,7 +44,6 @@ export function OfflineIndicator() {
   const [retrying, setRetrying] = useState(false)
 
   // Report drains once, when they happen — not on every render.
-  const wasDraining = useRef(false)
   useQueueEvents((event) => {
     switch (event.type) {
       case 'sent':
@@ -67,10 +66,6 @@ export function OfflineIndicator() {
         break
     }
   })
-
-  useEffect(() => {
-    wasDraining.current = draining
-  }, [draining])
 
   const held = pending + stalled
   if (online && held === 0) return null
