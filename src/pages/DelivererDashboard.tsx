@@ -5,8 +5,10 @@ import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { claimOrder, transitionOrderStatus } from "@/data/orders/transitions";
-import { describeTransition } from "@/domain/order/transition";
+import { claimOrder } from "@/data/orders/transitions";
+import { transitionOrQueue } from "@/data/orders/offlineTransition";
+import { describeClaim, describeTransition } from "@/domain/order/transition";
+import { useRealtimeResubscribe, useRefetchOnReconnect } from "@/hooks/useRealtimeRecovery";
 import {
   TONE_CLASS,
   actionLabel,
@@ -79,21 +81,6 @@ const DelivererDashboard = () => {
     checkRole();
   }, [user, authLoading, navigate]);
 
-  useEffect(() => {
-    if (!hasAccess) return;
-    fetchOrders();
-
-    // Realtime subscription
-    const channel = supabase
-      .channel("deliverer-orders")
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => {
-        fetchOrders();
-      })
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
-  }, [hasAccess]);
-
   const fetchOrders = async () => {
     const { data: ordersData } = await supabase
       .from("orders")
@@ -119,6 +106,30 @@ const DelivererDashboard = () => {
     setLoading(false);
   };
 
+  // Declared after fetchOrders so the reference is unambiguous rather than
+  // relying on a closure over a binding that is still in its temporal dead zone.
+  const onResubscribe = useRealtimeResubscribe(() => fetchOrders());
+
+  useEffect(() => {
+    if (!hasAccess) return;
+    fetchOrders();
+
+    // Realtime subscription
+    const channel = supabase
+      .channel("deliverer-orders")
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => {
+        fetchOrders();
+      })
+      .subscribe(onResubscribe);
+
+    return () => { supabase.removeChannel(channel); };
+  }, [hasAccess, onResubscribe]);
+
+  // Realtime does not replay what was missed while the connection was down. A
+  // rider is the most likely person in the system to lose signal mid-task, so
+  // this is the screen where a stale list is most damaging.
+  useRefetchOnReconnect(fetchOrders);
+
   // Goes through the database state machine. A direct UPDATE would be silently
   // dropped by RLS or rejected by the transition trigger.
   //
@@ -131,20 +142,24 @@ const DelivererDashboard = () => {
     expectedFrom: OrderStatus,
     newStatus: OrderStatus
   ) => {
-    const result = await transitionOrderStatus(orderId, newStatus, expectedFrom);
+    const result = await transitionOrQueue({
+      orderId,
+      to: newStatus,
+      expectedFrom,
+    });
     const feedback = describeTransition(result, newStatus);
     toast[feedback.tone](feedback.message);
     if (feedback.refresh || feedback.applied) fetchOrders();
   };
 
+  // Claiming is intentionally NOT queued offline — see describeClaim(). Racing
+  // other riders for a job that must be collected now is meaningless after a
+  // dropout, so this always requires a live connection and says so plainly.
   const handleClaim = async (orderId: string) => {
     const result = await claimOrder(orderId);
-    if (!result.ok) {
-      toast.error(result.message);
-      return;
-    }
-    toast.success("Job claimed");
-    fetchOrders();
+    const feedback = describeClaim(result);
+    toast[feedback.tone](feedback.message);
+    if (feedback.refresh) fetchOrders();
   };
 
   const openMaps = (address: string) => {

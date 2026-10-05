@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en-ZA">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Offline — ROMA</title>
+    <meta name="robots" content="noindex" />
+    <!--
+      Shown only when navigation fails AND the cached shell is unavailable, so
+      this page must be entirely self-contained: no stylesheet, no font, no image
+      request. Anything external would fail for the same reason we are here.
+      Colours are ROMA's brand green (#0F392B) sampled from the logo.
+    -->
+    <style>
+      :root {
+        color-scheme: dark;
+        --roma-green: #0f392b;
+        --roma-green-lift: #164a38;
+        --roma-cream: #f4f1e8;
+        --roma-lime: #a8d05a;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        margin: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1.5rem;
+        background: var(--roma-green);
+        color: var(--roma-cream);
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        line-height: 1.5;
+        text-align: center;
+        -webkit-text-size-adjust: 100%;
+      }
+      main { max-width: 26rem; width: 100%; }
+      .badge { width: 4.5rem; height: 4.5rem; margin: 0 auto 1.25rem; display: block; }
+      h1 { font-size: 1.5rem; line-height: 1.25; margin: 0 0 0.75rem; letter-spacing: -0.01em; }
+      p { margin: 0 0 1rem; color: #dfe6df; }
+      .reassurance {
+        background: var(--roma-green-lift);
+        border-left: 3px solid var(--roma-lime);
+        border-radius: 0.5rem;
+        padding: 0.875rem 1rem;
+        text-align: left;
+        font-size: 0.9375rem;
+        margin: 1.5rem 0;
+      }
+      .reassurance strong { color: var(--roma-lime); }
+      button {
+        font: inherit;
+        font-weight: 600;
+        width: 100%;
+        min-height: 3rem;
+        padding: 0.75rem 1.5rem;
+        border: 0;
+        border-radius: 0.5rem;
+        background: var(--roma-lime);
+        color: #14261c;
+        cursor: pointer;
+      }
+      button:hover { background: #b8dd6d; }
+      button:focus-visible { outline: 3px solid var(--roma-cream); outline-offset: 2px; }
+      .hours { font-size: 0.8125rem; color: #b9c9bd; margin-top: 1.5rem; }
+      .status { font-size: 0.8125rem; min-height: 1.25rem; color: #b9c9bd; }
+      @media (prefers-reduced-motion: no-preference) {
+        .pulse { animation: pulse 2.4s ease-in-out infinite; }
+        @keyframes pulse { 50% { opacity: 0.55; } }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <svg class="badge" viewBox="0 0 64 64" role="img" aria-label="ROMA">
+        <path
+          d="M32 3 6 13v20c0 14 11 25.5 26 28 15-2.5 26-14 26-28V13L32 3Z"
+          fill="none"
+          stroke="#a8d05a"
+          stroke-width="2.5"
+          stroke-linejoin="round"
+        />
+        <circle cx="30" cy="21" r="6.5" fill="#f4f1e8" />
+        <path
+          d="M23 31c5-2 12-1.5 16 2l-3 4-8-1.5-6 6-5-3 6-7.5Z"
+          fill="#f4f1e8"
+        />
+        <path d="M43 30l9 3-2 6-9-3z" fill="#f4f1e8" />
+      </svg>
+
+      <h1>No connection</h1>
+      <p>
+        ROMA couldn't reach the network. Check your signal or Wi-Fi, then try
+        again.
+      </p>
+
+      <p class="reassurance">
+        <strong>Nothing you did has been lost.</strong><br />
+        Any order updates you made are saved on this device and will be sent
+        automatically the moment you're back online.
+      </p>
+
+      <button id="retry" type="button">Try again</button>
+      <p class="status" id="status" role="status" aria-live="polite"></p>
+
+      <p class="hours">
+        Deliveries run 08:00–16:00, Monday to Friday.
+      </p>
+    </main>
+
+    <script>
+      // Self-contained and dependency-free: this page may be running because not
+      // even the application shell could be fetched.
+      (function () {
+        var status = document.getElementById('status')
+        var retry = document.getElementById('retry')
+
+        function go() {
+          status.textContent = 'Trying…'
+          window.location.replace('/')
+        }
+
+        retry.addEventListener('click', go)
+
+        // Recover on its own the moment the radio comes back. `online` fires on
+        // iOS Safari and Android Chrome alike, so this covers both.
+        window.addEventListener('online', go)
+
+        if (navigator.onLine) {
+          status.textContent = 'This device reports a connection — tap Try again.'
+        } else {
+          status.textContent = 'Waiting for a connection…'
+        }
+      })()
+    </script>
+  </body>
+</html>

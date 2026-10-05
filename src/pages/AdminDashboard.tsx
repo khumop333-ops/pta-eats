@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAdminAuth } from "@/context/AdminAuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { transitionOrderStatus } from "@/data/orders/transitions";
+import { transitionOrQueue } from "@/data/orders/offlineTransition";
 import { describeTransition } from "@/domain/order/transition";
+import { useRealtimeResubscribe, useRefetchOnReconnect } from "@/hooks/useRealtimeRecovery";
 import {
   TONE_CLASS,
   actionLabel,
@@ -60,6 +61,7 @@ interface Order {
 // constraint existed. Presentation now derives from the domain module.
 const AdminDashboard = () => {
   const { isAuthenticated, loading: authLoading, logout } = useAdminAuth();
+  const onResubscribe = useRealtimeResubscribe(() => fetchOrders());
   const navigate = useNavigate();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
@@ -112,10 +114,14 @@ const AdminDashboard = () => {
         { event: "*", schema: "public", table: "orders" },
         () => { fetchOrders(); }
       )
-      .subscribe();
+      .subscribe(onResubscribe);
 
     return () => { supabase.removeChannel(channel); };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, onResubscribe]);
+
+  // Realtime does not replay what was missed while the connection was down, so
+  // re-read the authoritative rows on reconnect and on resume.
+  useRefetchOnReconnect(fetchOrders);
 
   // Admin accounts act as 'system' (see current_actor() in the dispatch
   // migration). Routing through the RPC keeps the transitions table as the
@@ -129,7 +135,11 @@ const AdminDashboard = () => {
     expectedFrom: OrderStatus,
     newStatus: OrderStatus
   ) => {
-    const result = await transitionOrderStatus(orderId, newStatus, expectedFrom);
+    const result = await transitionOrQueue({
+      orderId,
+      to: newStatus,
+      expectedFrom,
+    });
     const feedback = describeTransition(result, newStatus);
     toast[feedback.tone](feedback.message);
 

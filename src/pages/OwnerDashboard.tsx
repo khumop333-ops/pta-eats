@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { transitionOrderStatus } from "@/data/orders/transitions";
+import { transitionOrQueue } from "@/data/orders/offlineTransition";
 import { describeTransition } from "@/domain/order/transition";
+import { useRealtimeResubscribe, useRefetchOnReconnect } from "@/hooks/useRealtimeRecovery";
 import {
   TONE_CLASS,
   actionLabel,
@@ -71,6 +72,12 @@ export default function OwnerDashboard() {
     );
   };
 
+  // Declared after loadOrders so every identifier it closes over is already in
+  // scope, rather than being read from its temporal dead zone.
+  const onResubscribe = useRealtimeResubscribe(() => {
+    if (restaurant) loadOrders(restaurant.id);
+  });
+
   useEffect(() => {
     let channel: ReturnType<typeof supabase.channel> | null = null;
 
@@ -104,13 +111,17 @@ export default function OwnerDashboard() {
           { event: "*", schema: "public", table: "orders", filter: `restaurant_id=eq.${rest.id}` },
           () => loadOrders(rest.id)
         )
-        .subscribe();
+        .subscribe(onResubscribe);
     };
 
     init();
 
     return () => { if (channel) supabase.removeChannel(channel); };
-  }, [navigate]);
+  }, [navigate, onResubscribe]);
+
+  // Realtime does not replay what was missed while the connection was down, so a
+  // kitchen screen that slept through a drop would keep showing a stale board.
+  useRefetchOnReconnect(() => { if (restaurant) loadOrders(restaurant.id); });
 
   // Owners act as actor='vendor'. This previously wrote status straight into the
   // row, which bypassed the state machine entirely — an owner could jump an order
@@ -124,7 +135,11 @@ export default function OwnerDashboard() {
     expectedFrom: OrderStatus,
     status: OrderStatus
   ) => {
-    const result = await transitionOrderStatus(orderId, status, expectedFrom);
+    const result = await transitionOrQueue({
+      orderId,
+      to: status,
+      expectedFrom,
+    });
     const feedback = describeTransition(result, status);
     toast[feedback.tone](feedback.message);
     if ((feedback.refresh || feedback.applied) && restaurant) loadOrders(restaurant.id);

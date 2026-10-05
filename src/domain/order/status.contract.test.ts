@@ -41,6 +41,26 @@ const PHANTOM = ['On the Way', 'Ready for Pickup/Delivery', 'PickedUp', 'Cancele
 const LEGACY = ['New', 'Accepted', 'Preparing', 'Ready', 'Picked Up', 'Delivered', 'Cancelled', 'Failed']
 
 /**
+ * Values of a field *called* `status` that have nothing to do with orders.
+ *
+ * Supabase's realtime client reports the lifecycle of a channel through a
+ * callback whose parameter is conventionally named `status`, so a comparison
+ * such as `status !== "SUBSCRIBED"` looks exactly like an order-status write to
+ * the scanner below. It is not one.
+ *
+ * Enumerated rather than pattern-matched because the set is small, closed and
+ * defined by an external library — treating it as a fact about the world is more
+ * honest than loosening the regex and silently losing the ability to catch a
+ * typo like `status: "complete"`.
+ */
+const NON_ORDER_STATUS = new Set([
+  'SUBSCRIBED',
+  'TIMED_OUT',
+  'CLOSED',
+  'CHANNEL_ERROR',
+])
+
+/**
  * Remove comments so documentation of the old vocabulary is not flagged.
  * The `[^:]` guard keeps `https://` from being treated as a line comment.
  */
@@ -88,9 +108,8 @@ describe('status vocabulary contract', () => {
       let m: RegExpExecArray | null
       while ((m = statusExpr.exec(code)) !== null) {
         const value = m[1]
-        if (!CANONICAL.has(value)) {
-          offenders.push(`${relative(REPO, file)}: status ... "${value}"`)
-        }
+        if (CANONICAL.has(value) || NON_ORDER_STATUS.has(value)) continue
+        offenders.push(`${relative(REPO, file)}: status ... "${value}"`)
       }
     }
 

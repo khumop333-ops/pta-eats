@@ -85,6 +85,28 @@ function narrowStatus(value: unknown): OrderStatus | null {
 }
 
 /**
+ * Did this error come from the server, or did the request never arrive?
+ *
+ * PostgREST returns a SQLSTATE in `code` whenever the database answered — a
+ * permission error, a constraint violation, a RAISE from our own functions.
+ * A transport failure has no SQLSTATE to report.
+ *
+ * When the shape is ambiguous this deliberately errs towards `offline`, and the
+ * asymmetry is the reason: mistaking a server error for a transport error costs
+ * a few pointless retries, which the attempt cap and backoff contain. Mistaking
+ * a transport error for a server error DELETES a write the rider believes is
+ * safe. Only one of those loses a delivery.
+ *
+ * Worth re-verifying against the live project, since supabase-js has changed how
+ * it wraps fetch failures between versions: a timeout should not read as a
+ * refusal.
+ */
+function isTransportFailure(error: { code?: string | null } | null): boolean {
+  if (!error) return false
+  return !error.code
+}
+
+/**
  * Move an order to `to`.
  *
  * `expectedFrom` is the status the CALLER believes the order is in — normally the
@@ -113,10 +135,15 @@ export async function transitionOrderStatus(
     p_expected_from: expectedFrom,
   })
 
-  if (error) return { ok: false, kind: 'refused', message: explain(error.message ?? '') }
+  if (error) {
+    if (isTransportFailure(error)) return { ok: false, kind: 'offline' }
+    return { ok: false, kind: 'refused', message: explain(error.message ?? '') }
+  }
 
   const envelope = data as unknown as TransitionEnvelope | null
   if (!envelope) {
+    // A 200 with an unparseable body. Treated as a refusal rather than offline:
+    // the request clearly reached SOMETHING, so retrying blindly could loop.
     return { ok: false, kind: 'refused', message: explain('') }
   }
 
@@ -150,7 +177,10 @@ export async function transitionOrderStatus(
 export async function claimOrder(orderId: string): Promise<ClaimOutcome> {
   const { data, error } = await supabase.rpc('claim_order', { p_order_id: orderId })
 
-  if (error) return { ok: false, kind: 'refused', message: explain(error.message ?? '') }
+  if (error) {
+    if (isTransportFailure(error)) return { ok: false, kind: 'offline' }
+    return { ok: false, kind: 'refused', message: explain(error.message ?? '') }
+  }
 
   const envelope = data as unknown as ClaimEnvelope | null
   if (envelope?.ok) return { ok: true, alreadyClaimed: envelope.alreadyClaimed === true }

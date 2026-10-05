@@ -10,6 +10,7 @@ import {
   type OrderStatus,
 } from "@/domain/order/status";
 import Header from "@/components/Header";
+import { useRealtimeResubscribe, useRefetchOnReconnect } from "@/hooks/useRealtimeRecovery";
 import { Badge } from "@/components/ui/badge";
 import { Package, Clock, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -44,6 +45,7 @@ interface Order {
 const MyOrders = () => {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+  const onResubscribe = useRealtimeResubscribe(() => fetchOrders());
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -88,9 +90,13 @@ const MyOrders = () => {
     const channel = supabase
       .channel("my-orders")
       .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `user_id=eq.${user.id}` }, () => fetchOrders())
-      .subscribe();
+      .subscribe(onResubscribe);
     return () => { supabase.removeChannel(channel); };
-  }, [user]);
+  }, [user, onResubscribe]);
+
+  // A customer tracking a delivery should not be left looking at a status that
+  // stopped updating when their train went into a tunnel.
+  useRefetchOnReconnect(fetchOrders);
 
   if (authLoading) return null;
 

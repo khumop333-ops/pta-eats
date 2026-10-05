@@ -26,6 +26,13 @@ import { statusLabel, type OrderStatus } from './status'
  * Collapsing (2) into an error is the defect that made an offline queue
  * impossible: a rider whose success acknowledgement was dropped would be told
  * their completed delivery was an illegal transition.
+ *
+ * `offline` is a fourth case and is NOT the same as `refused`. It means the
+ * request never reached the server, so we do not know whether it applied —
+ * which is precisely the situation compare-and-swap makes safe to retry. A
+ * `refused` means the server answered and said no, where retrying is futile.
+ * The queue treats those two in opposite ways, so conflating them either loses
+ * writes or retries them forever.
  */
 export type TransitionOutcome =
   | { ok: true; alreadyApplied: boolean }
@@ -37,11 +44,13 @@ export type TransitionOutcome =
       /** What the caller asserted, echoed back for reconciliation. */
       expectedFrom: OrderStatus | null
     }
+  | { ok: false; kind: 'offline' }
   | { ok: false; kind: 'refused'; message: string }
 
 /** Claiming is idempotent, so a lost acknowledgement can never read as a lost job. */
 export type ClaimOutcome =
   | { ok: true; alreadyClaimed: boolean }
+  | { ok: false; kind: 'offline' }
   | { ok: false; kind: 'refused'; message: string }
 
 export type FeedbackTone = 'success' | 'info' | 'warning' | 'error'
@@ -95,5 +104,49 @@ export function describeTransition(
     }
   }
 
+  if (result.kind === 'offline') {
+    // Not the operator's fault and not a rejection. Say what is actually true:
+    // the change is held and will be sent automatically. A rider who thinks a
+    // tap was lost will tap again, which is how duplicates get created.
+    return {
+      tone: 'warning',
+      message: 'No connection — this is saved and will send automatically.',
+      refresh: false,
+      applied: false,
+    }
+  }
+
   return { tone: 'error', message: result.message, refresh: false, applied: false }
+}
+
+/**
+ * Claiming is deliberately NOT queueable, and this copy says so rather than
+ * pretending the tap worked.
+ *
+ * A claim is an intent about the future: it competes with other riders for a job
+ * that has to be collected now. Replaying it twenty minutes after a dropout would
+ * hand a rider a delivery they can no longer make, and the customer would wait
+ * for food nobody is collecting. A status change is the opposite — a record of
+ * work already physically done — which is why only that is safe to defer.
+ *
+ * The distinction is not a limitation of the queue; it is the reason the queue is
+ * trustworthy.
+ */
+export function describeClaim(result: ClaimOutcome): TransitionFeedback {
+  if (result.ok) {
+    return result.alreadyClaimed
+      ? { tone: 'info', message: 'You had already claimed this job.', refresh: true, applied: true }
+      : { tone: 'success', message: 'Job claimed.', refresh: true, applied: true }
+  }
+
+  if (result.kind === 'offline') {
+    return {
+      tone: 'warning',
+      message: 'No connection — claiming a job needs a live link. Try again in a moment.',
+      refresh: false,
+      applied: false,
+    }
+  }
+
+  return { tone: 'error', message: result.message, refresh: true, applied: false }
 }
