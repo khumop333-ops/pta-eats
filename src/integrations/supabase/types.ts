@@ -306,6 +306,18 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: string
       }
+      // --- Added by the pricing slice (20261005140000_...sql).
+      // quote_order returns jsonb rather than a composite so that PostgREST and
+      // supabase-js can transport it unambiguously; narrow it with the QuoteResult
+      // union from src/domain/order/pricing.ts at the call site.
+      quote_order: {
+        Args: { p_items: Json; p_zone?: string | null }
+        Returns: Json
+      }
+      service_availability: {
+        Args: Record<PropertyKey, never>
+        Returns: Json
+      }
     }
     Enums: {
       app_role: "admin" | "deliverer" | "user" | "restaurant_owner"

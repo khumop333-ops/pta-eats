@@ -14,6 +14,7 @@
  */
 import { supabase } from '@/integrations/supabase/client'
 import type { OrderStatus } from '@/domain/order/status'
+import type { QuoteResult, ServiceAvailability } from '@/domain/order/pricing'
 
 export type ActionResult =
   | { ok: true }
@@ -88,4 +89,37 @@ export async function listOpenJobs(): Promise<OpenJob[]> {
   const { data, error } = await supabase.rpc('list_open_jobs')
   if (error || !data) return []
   return data as OpenJob[]
+}
+
+/**
+ * Fetch the authoritative quote for a basket.
+ *
+ * This is the ONLY way the UI learns what an order costs. The client sends WHAT it
+ * wants; the database decides what it costs. The same function prices the order at
+ * placement, so the figure on this screen is the figure that gets charged.
+ */
+export async function quoteOrder(
+  items: ReadonlyArray<{ menuItemId: string; quantity: number }>,
+  zone?: string | null
+): Promise<QuoteResult> {
+  if (items.length === 0) return { ok: false, error: 'empty_basket' }
+
+  const { data, error } = await supabase.rpc('quote_order', {
+    p_items: items.map((i) => ({ menuItemId: i.menuItemId, quantity: i.quantity })),
+    p_zone: zone ?? null,
+  })
+
+  if (error || !data) {
+    // A transport failure is not a pricing answer — surface it as a generic
+    // failure rather than pretending the basket is empty or unavailable.
+    return { ok: false, error: 'item_unavailable' }
+  }
+  return data as unknown as QuoteResult
+}
+
+/** Service-window state, for rendering closed banners and opening hours. */
+export async function fetchServiceAvailability(): Promise<ServiceAvailability | null> {
+  const { data, error } = await supabase.rpc('service_availability')
+  if (error || !data) return null
+  return data as unknown as ServiceAvailability
 }

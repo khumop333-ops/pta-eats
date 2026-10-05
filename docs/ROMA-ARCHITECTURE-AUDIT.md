@@ -264,6 +264,63 @@ I am flagging this at its true severity: **low and informational**, not critical
 
 ---
 
+## 9a. Post-Audit Progress Log
+
+Added after the initial audit, recording what has actually been closed and — more
+importantly — what had to be corrected along the way.
+
+### Slice 1 — Dispatch (G1, G2, ordering half of G5)
+`20261005120000_dispatch_core.sql`. Atomic `FOR UPDATE SKIP LOCKED` claiming, a
+transition table enforced by trigger on every write path, a redacted job board, and
+RLS scoped to `deliverer_id = auth.uid()` instead of the unscoped
+`has_role(uid,'deliverer')` that exposed every customer's name, phone and address to
+every rider.
+
+Four defects were found by *executing* the migration rather than reading it:
+`DEFAULT 'New'` violating the new CHECK; `trg_mark_cash_paid` matching the old
+TitleCase literal (cash would have silently stopped settling); `list_open_jobs`
+referencing three non-existent columns; and a migration misread as empty that is
+actually 60 bytes and drives every dashboard live update.
+
+### Slice 2 — Pricing & service window (money + G5)
+`20261005140000_pricing_and_service_window.sql`. One pricing authority
+(`quote_order()`), integer cents everywhere, the trading window as configuration,
+and Pretoria delivery zones.
+
+### Self-inflicted P0, recorded rather than quietly fixed
+**Slice 1 broke order creation.** `create-order/index.ts` wrote
+`status: 'New'`, which the new CHECK constraint rejects. Every order failed.
+It was missed because the dispatch work grepped `src/` and `supabase/migrations/`
+but never `supabase/functions/`; the DB suite seeds rows directly instead of
+exercising the edge function; and TypeScript cannot see inside a Deno function.
+Four guards, all blind to the one file that mattered.
+
+Closed by a vocabulary contract test that scans **both** `src/` and
+`supabase/functions/`, verified by negative control — injecting the defect back
+produces a failure naming the exact file. An earlier version of that negative
+control reported failure for the wrong reason (a bad test path), which is why it was
+re-run properly: a guard never observed failing is not a guard.
+
+Also closed in slice 2: **10 pre-existing lint errors** (all trivial — `any`, an
+empty-interface, a `require()`), so that `npm run verify` is a gate that can
+actually pass rather than one that always fails.
+
+### A correction to my own §8 sequencing
+I recommended Phase 0 as "enforce strict typing, delete the dump, single lockfile".
+That was wrong in emphasis. `strictNullChecks` turned out to be nearly free — zero
+errors across 4,000 LOC — and it was *actively suppressing correct code*: without
+it TypeScript disables discriminated-union narrowing, so `if (!result.ok)
+result.message` does not typecheck and you are pushed into casts. Hygiene was the
+least valuable part of Phase 0; the type flag was the most.
+
+### Still outstanding
+G3 (offline/PWA — completely unaddressed), G4 (no coordinates; zones are
+client-declared and therefore unverified), G6 (WhatsApp), G7 (single 181 kB gzip
+chunk), G9 (design tokens still orange-primary). Zone fees shipped as placeholder
+defaults requiring operator input.
+
+---
+
 ## 10. Summary
 
 The existing platform is a **functional single-vendor food ordering SPA with competent payment-integrity controls and a genuinely hardened RLS posture.** It is, however, **not yet a hyperlocal delivery platform**: it has no dispatch, no coordinates, no service window, no offline resilience, and no WhatsApp channel — and its central operational model (any driver, any order) is the specific thing that must change before ROMA can run a single shift.

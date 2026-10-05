@@ -27,7 +27,14 @@ import { fileURLToPath } from 'node:url'
 // Resolve the repo root from this file's location so the test runs anywhere.
 const REPO = fileURLToPath(new URL('../..', import.meta.url))
 const MIGRATIONS = join(REPO, 'supabase/migrations')
-const DISPATCH_MIGRATION = '20261005120000_dispatch_core.sql'
+// Migrations UNDER TEST, applied in order after the baseline so the suite can
+// seed legacy data first and then prove the migrations convert it.
+// Listed explicitly rather than auto-detected: a new migration silently joining
+// the baseline would quietly stop being tested against legacy state.
+const UNDER_TEST = [
+  '20261005120000_dispatch_core.sql',
+  '20261005140000_pricing_and_service_window.sql',
+]
 
 let passed = 0
 const failures = []
@@ -115,9 +122,9 @@ await db.exec(`
 console.log('  auth.uid(), anon/authenticated/service_role, supabase_realtime publication ready')
 
 // ---------------------------------------------------------------------------
-console.log('\n\x1b[1m2. Baseline migration chain (dispatch migration held back)\x1b[0m')
+console.log('\n\x1b[1m2. Baseline migration chain (migrations under test held back)\x1b[0m')
 const baseline = readdirSync(MIGRATIONS)
-  .filter((f) => f.endsWith('.sql') && f !== DISPATCH_MIGRATION)
+  .filter((f) => f.endsWith('.sql') && !UNDER_TEST.includes(f))
   .sort()
 for (const f of baseline) {
   try {
@@ -163,13 +170,15 @@ const unmapped = distinct.rows.map((r) => r.status).filter((s) => !(s in known))
 ok('every live status maps to the canonical set', unmapped.length === 0, `unmapped: ${JSON.stringify(unmapped)}`)
 
 // ---------------------------------------------------------------------------
-console.log('\n\x1b[1m5. Apply the dispatch migration\x1b[0m')
-try {
-  await db.exec(readFileSync(join(MIGRATIONS, DISPATCH_MIGRATION), 'utf8'))
-  console.log('  \x1b[32mapplied cleanly against real Postgres 18\x1b[0m')
-} catch (e) {
-  console.log('  \x1b[31mAPPLY FAILED:\x1b[0m ' + String(e.message).split('\n').slice(0, 4).join(' | '))
-  process.exit(1)
+console.log('\n\x1b[1m5. Apply the migrations under test, in deploy order\x1b[0m')
+for (const f of UNDER_TEST) {
+  try {
+    await db.exec(readFileSync(join(MIGRATIONS, f), 'utf8'))
+    console.log(`  \x1b[32m ok \x1b[0m ${f}`)
+  } catch (e) {
+    console.log(`  \x1b[31mAPPLY FAILED\x1b[0m ${f}: ` + String(e.message).split('\n').slice(0, 3).join(' | '))
+    process.exit(1)
+  }
 }
 const after = await db.query(`SELECT status, count(*)::int n FROM public.orders GROUP BY status ORDER BY status`)
 console.log('  after backfill: ' + after.rows.map((r) => `${r.status}(${r.n})`).join(' '))
@@ -223,10 +232,9 @@ if (!inWindow) {
 
 // ---------------------------------------------------------------------------
 console.log('\n\x1b[1m9. Dispatch mechanics (window forced open — explicit test double)\x1b[0m')
-const realWindowFn = readFileSync(join(MIGRATIONS, DISPATCH_MIGRATION), 'utf8')
-  .split('CREATE OR REPLACE FUNCTION public.is_within_service_window()')[1]
 console.log('  \x1b[33mNOTE\x1b[0m replacing is_within_service_window() with a constant true for')
-console.log('        deterministic mechanics tests; restored in section 12.')
+console.log('        deterministic mechanics tests; restored in section 14 to the REAL')
+console.log('        config-driven definition, not to a hardcoded copy.')
 await db.exec(`CREATE OR REPLACE FUNCTION public.is_within_service_window()
   RETURNS boolean LANGUAGE sql IMMUTABLE AS $$ SELECT true $$;`)
 
@@ -389,13 +397,179 @@ ok('raw UPDATE assigned -> picked_up is permitted (legal transition)',
 
 // ---------------------------------------------------------------------------
 console.log('\n\x1b[1m14. Restore the real service window\x1b[0m')
-await db.exec(`CREATE OR REPLACE FUNCTION public.is_within_service_window()
-  RETURNS boolean LANGUAGE sql STABLE AS $$
-    SELECT EXTRACT(ISODOW FROM (now() AT TIME ZONE 'Africa/Johannesburg')) BETWEEN 1 AND 5
-       AND (now() AT TIME ZONE 'Africa/Johannesburg')::time BETWEEN time '08:00' AND time '16:00';
+// NOTE: section 9 replaced this function with a constant. It must be restored to
+// the REAL definition from the pricing migration -- which reads service_config --
+// not to a hardcoded copy. Restoring literals here would test a function shape
+// that no longer exists in the codebase.
+await db.exec(`
+  CREATE OR REPLACE FUNCTION public.is_within_service_window()
+  RETURNS boolean LANGUAGE sql STABLE SET search_path = public AS $$
+    SELECT EXISTS (
+      SELECT 1 FROM public.service_config c
+       WHERE EXTRACT(ISODOW FROM (now() AT TIME ZONE c.timezone))::integer = ANY (c.open_days)
+         AND (now() AT TIME ZONE c.timezone)::time >= c.open_time
+         AND (now() AT TIME ZONE c.timezone)::time <= c.close_time
+    )
   $$;`)
 const restored = (await db.query(`SELECT public.is_within_service_window() w`)).rows[0].w
-ok('real window function restored', restored === inWindow, `got ${restored}, expected ${inWindow}`)
+ok('real config-driven window restored', restored === inWindow, `got ${restored}, expected ${inWindow}`)
+
+// ---------------------------------------------------------------------------
+console.log('\n\x1b[1m15. Service window is CONFIGURED, not hardcoded\x1b[0m')
+const cfg = (await db.query(`SELECT open_time, close_time, open_days, accept_orders_outside_window, timezone FROM public.service_config WHERE id`)).rows[0]
+ok('single config row exists with the ROMA default 08:00-16:00',
+  cfg && String(cfg.open_time).startsWith('08:00') && String(cfg.close_time).startsWith('16:00'),
+  JSON.stringify(cfg))
+ok('default trading days are Mon-Fri', JSON.stringify(cfg.open_days) === '[1,2,3,4,5]', JSON.stringify(cfg.open_days))
+ok('default timezone is Africa/Johannesburg', cfg.timezone === 'Africa/Johannesburg')
+ok('default refuses orders outside the window', cfg.accept_orders_outside_window === false)
+
+// The whole point of the config table: the operator can change hours WITHOUT a
+// migration. Prove the function actually reads it rather than shadowing it.
+await db.exec(`UPDATE public.service_config SET open_days = '{1,2,3,4,5,6,7}', open_time='00:00', close_time='23:59' WHERE id;`)
+const opened = (await db.query(`SELECT public.is_within_service_window() w`)).rows[0].w
+ok('widening the config window takes effect immediately (no migration needed)',
+  opened === true, `expected true with 00:00-23:59 seven days a week, got ${opened}`)
+
+await db.exec(`UPDATE public.service_config SET open_days = '{1,2,3,4,5}', open_time='08:00', close_time='16:00' WHERE id;`)
+const narrowed = (await db.query(`SELECT public.is_within_service_window() w`)).rows[0].w
+ok('narrowing it back restores the original state', narrowed === inWindow, `got ${narrowed}`)
+
+console.log('\n\x1b[1m16. service_availability() reports the next opening moment\x1b[0m')
+const avail = (await db.query(`SELECT public.service_availability() s`)).rows[0].s
+console.log('  ' + JSON.stringify({ isOpen: avail.isOpen, canOrder: avail.canOrder, reason: avail.reason, nextOpenAt: avail.nextOpenAt }))
+ok('availability exposes isOpen', typeof avail.isOpen === 'boolean')
+ok('availability exposes canOrder', typeof avail.canOrder === 'boolean')
+ok('isOpen agrees with is_within_service_window()', avail.isOpen === inWindow)
+ok('when closed, a next opening moment is provided', inWindow || avail.nextOpenAt !== null,
+  'nextOpenAt was null while closed — the UI would have nothing to tell the customer')
+if (!inWindow && avail.nextOpenAt) {
+  // Recompute independently: the next opening must be a weekday at 08:00 SAST.
+  const next = new Date(avail.nextOpenAt)
+  const sast = new Date(next.getTime() + 2 * 3600 * 1000)
+  ok('next opening is at 08:00 SAST', sast.getUTCHours() === 8 && sast.getUTCMinutes() === 0,
+    `got ${sast.toISOString()}`)
+  ok('next opening avoids the weekend', sast.getUTCDay() >= 1 && sast.getUTCDay() <= 5,
+    `day=${sast.getUTCDay()}`)
+  ok('next opening is in the future', next.getTime() > Date.now())
+  // The client renders this WITHOUT a timeZone option if it forgets; assert the
+  // server hands back a correct absolute instant rather than a local wall time.
+  ok('nextOpenAt is an absolute instant with a timezone', /Z$|[+-]\d{2}:\d{2}$/.test(avail.nextOpenAt),
+    avail.nextOpenAt)
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n\x1b[1m17. Delivery zones (placeholder pricing, real structure)\x1b[0m')
+const zones = await db.query(`SELECT code, fee_cents FROM public.delivery_zones ORDER BY sort_order`)
+console.log('  ' + zones.rows.map((z) => `${z.code}=${z.fee_cents}`).join(' '))
+ok('five Pretoria zones seeded', zones.rows.length === 5, `got ${zones.rows.length}`)
+ok('central is the cheapest band', zones.rows.find((z) => z.code === 'central').fee_cents === 1500)
+ok('north is the dearest band (farthest: Soshanguve/Mabopane)',
+  zones.rows.find((z) => z.code === 'north').fee_cents === 3500)
+ok('every fee is a positive integer number of cents',
+  zones.rows.every((z) => Number.isInteger(z.fee_cents) && z.fee_cents > 0))
+
+console.log('\n\x1b[1m18. quote_order() is the single pricing authority\x1b[0m')
+const MI1 = 'eeeeeeee-0000-0000-0000-000000000001'
+const MI2 = 'eeeeeeee-0000-0000-0000-000000000002'
+const MI_OTHER = 'eeeeeeee-0000-0000-0000-000000000003'
+await db.exec(`
+  INSERT INTO public.restaurants (id, name, cuisine) VALUES (2,'Second Kitchen','Test')
+    ON CONFLICT (id) DO NOTHING;
+  INSERT INTO public.menu_items (id, restaurant_id, name, price, category) VALUES
+    ('${MI1}', 1, 'Kota',        29.99, 'Mains'),
+    ('${MI2}', 1, 'Boerie Roll', 15.50, 'Mains'),
+    ('${MI_OTHER}', 2, 'Rival Item', 10.00, 'Mains')
+    ON CONFLICT (id) DO NOTHING;
+`)
+
+async function quote(items, zone) {
+  const r = await db.query(`SELECT public.quote_order($1::jsonb, $2) q`,
+    [JSON.stringify(items), zone])
+  return r.rows[0].q
+}
+
+// -- exact cents arithmetic
+const q = await quote([{ menuItemId: MI1, quantity: 2 }, { menuItemId: MI2, quantity: 1 }], 'central')
+ok('quote succeeds for a valid single-restaurant basket', q.ok === true, JSON.stringify(q))
+ok('line total is exact in cents (2 x 29.99 = 5998)', q.items[0].lineTotalCents === 5998, JSON.stringify(q.items[0]))
+ok('boerie roll line is 1550', q.items[1].lineTotalCents === 1550)
+ok('subtotalCents = 7548', q.subtotalCents === 7548, `got ${q.subtotalCents}`)
+ok('deliveryFeeCents comes from the zone table (central=1500)', q.deliveryFeeCents === 1500)
+ok('totalCents = subtotal + fee exactly', q.totalCents === q.subtotalCents + q.deliveryFeeCents)
+ok('totalCents = 9048', q.totalCents === 9048, `got ${q.totalCents}`)
+
+// -- the four-place fee problem, gone: the zone drives the price
+const qNorth = await quote([{ menuItemId: MI1, quantity: 1 }], 'north')
+ok('a different zone changes the fee (north=3500)', qNorth.deliveryFeeCents === 3500)
+ok('north total is 29.99 + 35.00 = 6499', qNorth.totalCents === 6499, `got ${qNorth.totalCents}`)
+
+// -- failure modes
+ok('empty basket is rejected', (await quote([], 'central')).error === 'empty_basket')
+ok('unknown zone is rejected', (await quote([{ menuItemId: MI1, quantity: 1 }], 'atlantis')).error === 'unknown_zone')
+ok('mixed restaurants are rejected',
+  (await quote([{ menuItemId: MI1, quantity: 1 }, { menuItemId: MI_OTHER, quantity: 1 }], 'central')).error === 'mixed_restaurants')
+ok('unknown item is rejected',
+  (await quote([{ menuItemId: '99999999-9999-9999-9999-999999999999', quantity: 1 }], 'central')).error === 'item_unavailable')
+// A malformed uuid must return a clean code, not a Postgres cast error.
+ok('malformed uuid returns invalid_item rather than raising',
+  (await quote([{ menuItemId: 'not-a-uuid', quantity: 1 }], 'central')).error === 'invalid_item')
+
+// -- prices come from the database, never the caller
+const qTampered = await quote([{ menuItemId: MI1, quantity: 1, price: 0.01, unitPriceCents: 1 }], 'central')
+ok('a client-supplied price is IGNORED (server reads menu_items)',
+  qTampered.items[0].unitPriceCents === 2999 && qTampered.subtotalCents === 2999,
+  `got ${qTampered.items[0].unitPriceCents}`)
+
+// -- quantity clamping
+const qClamp = await quote([{ menuItemId: MI1, quantity: 9999 }], 'central')
+ok('absurd quantity is clamped to 50', qClamp.items[0].quantity === 50, `got ${qClamp.items[0].quantity}`)
+
+console.log('\n\x1b[1m19. The four-copy fee is now one copy\x1b[0m')
+// delivery_fee (numeric) must be DERIVED from delivery_fee_cents, never set
+// independently, or the two can disagree on a receipt.
+await db.exec(`
+  INSERT INTO public.orders (customer_name, phone_number, delivery_address, restaurant_id,
+    restaurant_name, subtotal, delivery_fee_cents, delivery_zone, total, status, user_id)
+  VALUES ('Fee Sync','+27000000002','1 Fee St',1,'Roma Test Kitchen',100.00,1500,'central',115.00,'pending','${CUST}');
+`)
+const sync = (await db.query(`SELECT delivery_fee, delivery_fee_cents FROM public.orders WHERE customer_name='Fee Sync'`)).rows[0]
+ok('numeric delivery_fee is derived from cents (15.00)', Number(sync.delivery_fee) === 15, `got ${sync.delivery_fee}`)
+
+// Now write ONLY cents and confirm the numeric follows — the reverse of the old bug.
+await db.exec(`
+  INSERT INTO public.orders (customer_name, phone_number, delivery_address, restaurant_id,
+    restaurant_name, subtotal, delivery_fee, delivery_fee_cents, delivery_zone, total, status, user_id)
+  VALUES ('Fee Override','+27000000003','1 Fee St',1,'Roma Test Kitchen',100.00,99.99,3500,'north',135.00,'pending','${CUST}');
+`)
+const sync2 = (await db.query(`SELECT delivery_fee FROM public.orders WHERE customer_name='Fee Override'`)).rows[0]
+ok('cents WIN over a stale numeric value (99.99 -> 35.00)', Number(sync2.delivery_fee) === 35, `got ${sync2.delivery_fee}`)
+
+console.log('\n\x1b[1m20. P0 REGRESSION: order placement works with canonical status\x1b[0m')
+// This mirrors EXACTLY what create-order now sends. Before the fix it sent
+// status:'New' and every order failed the CHECK constraint.
+await db.exec(`
+  INSERT INTO public.orders (customer_name, phone_number, delivery_address, restaurant_id,
+    restaurant_name, subtotal, delivery_fee_cents, delivery_zone, total, status, user_id,
+    payment_method, payment_status)
+  VALUES ('P0 Check','+27000000004','1 P0 St',1,'Roma Test Kitchen',
+    75.48,1500,'central',90.48,'pending','${CUST}','card','pending');
+`)
+const p0 = (await db.query(`SELECT status FROM public.orders WHERE customer_name='P0 Check'`)).rows[0]
+ok('order places successfully with status pending', p0.status === 'pending')
+
+// And the legacy literal is still rejected, with a HELPFUL message rather than a
+// bare constraint violation.
+try {
+  await db.exec(`INSERT INTO public.orders (customer_name, phone_number, delivery_address,
+    restaurant_id, restaurant_name, subtotal, delivery_fee_cents, total, status, user_id)
+    VALUES ('Legacy','+27000000005','x',1,'R',10,1500,25,'New','${CUST}');`)
+  ok('legacy TitleCase status is rejected', false, 'insert SUCCEEDED')
+} catch (e) {
+  const msg = String(e.message)
+  ok('legacy TitleCase status is rejected', msg.includes('Invalid order status'), msg.split('\n')[0])
+  ok('the rejection names the canonical values', msg.includes('pending') && msg.includes('lowercase'))
+}
 
 console.log(`\n\x1b[1mResult: ${passed} passed, ${failures.length} failed\x1b[0m`)
 if (failures.length) {
