@@ -1,0 +1,47 @@
+# Cache policy. Both Netlify and Cloudflare Pages honour this file.
+#
+# The service worker makes the browser's own caching decisions load-bearing: if
+# /sw.js is cached, an installed app can be pinned to an old worker for as long
+# as the cache lives, and no amount of correctness inside the worker helps.
+# updateViaCache:'none' on the registration covers the browser's own cache; this
+# covers any intermediate one.
+
+/sw.js
+  Cache-Control: no-cache, no-store, must-revalidate
+  Service-Worker-Allowed: /
+
+# index.html is deliberately NOT cached. It is the only unhashed entry point, so
+# a cached copy pins users to a build whose hashed assets may already be gone,
+# and a new deploy would be invisible until the cache expired.
+/
+  Cache-Control: no-cache
+
+/index.html
+  Cache-Control: no-cache
+
+/manifest.webmanifest
+  Content-Type: application/manifest+json
+  Cache-Control: public, max-age=3600
+
+/offline.html
+  Cache-Control: public, max-age=3600
+
+# Vite content-hashes these filenames, so a given URL can never change its
+# contents. Safe to cache for a year.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/icon-192.png
+  Cache-Control: public, max-age=604800
+
+/icon-512.png
+  Cache-Control: public, max-age=604800
+
+/icon-maskable-512.png
+  Cache-Control: public, max-age=604800
+
+/apple-touch-icon.png
+  Cache-Control: public, max-age=604800
+
+/favicon.jpg
+  Cache-Control: public, max-age=604800

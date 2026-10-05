@@ -7,7 +7,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { z } from "zod";
 
 export interface CartItem {
   id: string;
@@ -36,26 +35,53 @@ const CartContext = createContext<CartContextType | undefined>(undefined);
  *
  * Anything in web storage is attacker-controllable and version-fragile: a user
  * can edit it, and an older build can leave a shape this build no longer
- * understands. A schema means a stale or tampered cart degrades to an empty cart
- * instead of crashing the app during render — which, for a shop front, would
- * take the whole store down for that visitor.
+ * understands. Validating means a stale or tampered cart degrades to an empty
+ * cart instead of crashing the app during render — which, for a shop front,
+ * would take the whole store down for that visitor.
+ *
+ * Hand-written rather than zod, and that is a measured decision: zod is in
+ * package.json but was never imported anywhere, so the bundler had been dropping
+ * it entirely. Adding a schema to this provider pulled the whole library into
+ * the main chunk — 633 kB -> 698 kB (182.6 kB -> 198.3 kB gzip). Fifteen
+ * kilobytes of gzip is a real cost on Pretoria 3G and this is the entire
+ * validation requirement. (G7 in the audit still calls for code-splitting; the
+ * right home for a schema library is a lazily-loaded form, not the entry chunk.)
  *
  * Note the prices here are DISPLAY ONLY. The server re-prices every basket
- * through quote_order() at checkout, so a doctored price in storage cannot
- * change what anyone is charged. That is what makes it safe to keep prices in a
+ * through quote_order() at checkout, so a doctored price in storage cannot change
+ * what anyone is charged. That is what makes it safe to keep prices in a
  * client-readable place at all.
  */
-const CartItemSchema = z.object({
-  id: z.string().min(1),
-  name: z.string(),
-  price: z.number().finite().nonnegative(),
-  // Matches the server's own clamp in quote_order(): a quantity beyond 50 is a
-  // mistake or an attack, not an order.
-  quantity: z.number().int().positive().max(50),
-  restaurantId: z.number().int(),
-});
+const MAX_CART_ITEMS = 100;
+/** Matches the server's own clamp in quote_order(): above this it is not an order. */
+const MAX_QUANTITY = 50;
 
-const StoredCartSchema = z.array(CartItemSchema).max(100);
+function isCartItem(value: unknown): value is CartItem {
+  if (typeof value !== "object" || value === null) return false;
+  const item = value as Record<string, unknown>;
+  return (
+    typeof item.id === "string" &&
+    item.id.length > 0 &&
+    typeof item.name === "string" &&
+    typeof item.price === "number" &&
+    Number.isFinite(item.price) &&
+    item.price >= 0 &&
+    typeof item.quantity === "number" &&
+    Number.isInteger(item.quantity) &&
+    item.quantity >= 1 &&
+    item.quantity <= MAX_QUANTITY &&
+    typeof item.restaurantId === "number" &&
+    Number.isInteger(item.restaurantId)
+  );
+}
+
+/** Returns the stored items, or null if the payload cannot be trusted at all. */
+function parseStoredCart(raw: unknown): CartItem[] | null {
+  if (!Array.isArray(raw) || raw.length > MAX_CART_ITEMS) return null;
+  // A single bad entry must not discard the rest: dropping one line is a far
+  // better outcome for a shopper than emptying their basket.
+  return raw.filter(isCartItem);
+}
 
 const STORAGE_KEY = "roma.cart.v1";
 
@@ -71,13 +97,13 @@ function readStoredCart(): CartItem[] {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
-    const parsed = StoredCartSchema.safeParse(JSON.parse(raw));
-    if (!parsed.success) {
+    const parsed = parseStoredCart(JSON.parse(raw));
+    if (parsed === null) {
       console.warn("[cart] discarding an unreadable stored cart");
       window.localStorage.removeItem(STORAGE_KEY);
       return [];
     }
-    return parsed.data;
+    return parsed;
   } catch {
     return [];
   }
@@ -141,7 +167,9 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
       const existing = prev.find((i) => i.id === item.id);
       if (existing) {
         return prev.map((i) =>
-          i.id === item.id ? { ...i, quantity: Math.min(50, i.quantity + 1) } : i
+          i.id === item.id
+            ? { ...i, quantity: Math.min(MAX_QUANTITY, i.quantity + 1) }
+            : i
         );
       }
       return [...prev, { ...item, quantity: 1 }];
@@ -157,7 +185,9 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
       setItems((prev) => prev.filter((i) => i.id !== id));
     } else {
       setItems((prev) =>
-        prev.map((i) => (i.id === id ? { ...i, quantity: Math.min(50, quantity) } : i))
+        prev.map((i) =>
+          i.id === id ? { ...i, quantity: Math.min(MAX_QUANTITY, quantity) } : i
+        )
       );
     }
   }, []);

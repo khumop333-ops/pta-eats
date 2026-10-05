@@ -313,11 +313,55 @@ it TypeScript disables discriminated-union narrowing, so `if (!result.ok)
 result.message` does not typecheck and you are pushed into casts. Hygiene was the
 least valuable part of Phase 0; the type flag was the most.
 
+### Slice 3 — replay-safe transitions (the G3 blocker)
+Before this slice, `assigned -> picked_up` succeeded and an identical replay was
+**rejected as `illegal_transition`**. A rider whose acknowledgement was lost would
+be told their completed step was impossible. `claim_order` had the same defect,
+reading a lost ack as "another rider just took this job".
+
+Both are now replay-safe: the transition RPC is a compare-and-swap returning
+`{alreadyApplied}` or `{conflict, currentStatus}` as **data**, and a claim replay
+returns `alreadyClaimed`. Two details worth keeping:
+
+- The `DROP FUNCTION` of the 2-arg overload is load-bearing, not tidying. Because
+  the new third parameter has a `DEFAULT`, it is callable with two arguments, so
+  both signatures match and **every** transition call in the app would fail with
+  "function ... is not unique" — a total dispatch outage. Proven in isolation and
+  asserted in the suite.
+- Legality of the intent is checked *before* the current-position check. Reversed,
+  a request is blessed merely because the row already sits in the target state,
+  which quietly turns an idempotency guard into an authorisation bypass.
+
+### Slice 4 — offline/PWA
+Recon found **zero** offline capability, and — usefully — **zero** `useQuery` /
+`useMutation`: TanStack Query was mounted but unused, so there was no query layer
+to persist and the offline read story had to be designed rather than configured.
+The cart lived only in `useState`, and all four realtime channels had no reconnect
+refetch, so events missed during any dropout were never recovered.
+
+Shipped: a hand-written service worker (stack-agnostic, and Supabase traffic is
+never cached because the Cache API is not protected by the app session), a
+manifest with a maskable icon set, an IndexedDB outbox built on slice 3's CAS
+contract, reconnect/foreground/re-subscription refetch, a validated persisted
+cart, and a connection indicator.
+
+The judgement calls I would defend hardest: **claiming is not queueable** (a claim
+is an intent competing with other riders for work that must be collected now,
+whereas a status change is a record of work already done), and **no `skipWaiting`**
+(a rider mid-delivery is never switched onto a build whose assets their page does
+not have).
+
 ### Still outstanding
-G3 (offline/PWA — completely unaddressed), G4 (no coordinates; zones are
-client-declared and therefore unverified), G6 (WhatsApp), G7 (single 181 kB gzip
-chunk), G9 (design tokens still orange-primary). Zone fees shipped as placeholder
-defaults requiring operator input.
+G4 (no coordinates; zones are client-declared and therefore unverified), G6
+(WhatsApp), G7 (single 183 kB gzip chunk), G9 (design tokens still orange-primary).
+Zone fees shipped as placeholder defaults requiring operator input.
+
+**One gap I am not going to paper over:** the service worker has not been run in a
+real browser. Its strategies depend on `fetch` and `caches`, which the Node suite
+does not provide, and `vite build` copying the file proves nothing about its
+behaviour. It is the largest untested surface in the project. A manual test script
+is in `docs/OFFLINE-AND-PWA-RUNBOOK.md` §4, and tests 7, 8 and 13 in particular
+need a real low-end Android device.
 
 ---
 
