@@ -19,6 +19,7 @@ import DelivererDashboard from "./pages/DelivererDashboard";
 import OwnerLogin from "./pages/OwnerLogin";
 import OwnerDashboard from "./pages/OwnerDashboard";
 import NotFound from "./pages/NotFound";
+import { OfflineIndicator } from "@/components/offline/OfflineIndicator";
 
 const queryClient = new QueryClient();
 
@@ -30,6 +31,11 @@ const App = () => (
           <AdminAuthProvider>
             <Toaster />
             <Sonner />
+            {/* Inside the providers (it needs the queue, which reads the auth
+                session) and above the router, so it stays visible on every
+                route including the login screens — a rider is most likely to
+                lose signal while out on a delivery, not while signing in. */}
+            <OfflineIndicator />
             <BrowserRouter>
               <Routes>
                 <Route path="/" element={<Index />} />

@@ -1,11 +1,19 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import type { Database } from "@/integrations/supabase/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Trash2, Plus, Truck } from "lucide-react";
 import { toast } from "sonner";
+
+
+/** Response shape of the admin-create-user edge function. */
+interface AdminCreateUserResponse {
+  error?: string;
+  userId?: string;
+}
 
 interface DelivererProfile {
   user_id: string;
@@ -65,8 +73,9 @@ const DelivererManager = () => {
       body: { email, password, full_name: fullName, role: "deliverer" },
     });
 
-    if (error || (data as any)?.error) {
-      toast.error((data as any)?.error || error?.message || "Failed to create account");
+    const result = data as AdminCreateUserResponse | null;
+    if (error || result?.error) {
+      toast.error(result?.error || error?.message || "Failed to create account");
       setAdding(false);
       return;
     }
@@ -84,7 +93,7 @@ const DelivererManager = () => {
       .from("user_roles")
       .delete()
       .eq("user_id", userId)
-      .eq("role", "deliverer" as any);
+      .eq("role", "deliverer" satisfies Database["public"]["Enums"]["app_role"]);
 
     if (error) {
       toast.error("Failed to remove deliverer role");

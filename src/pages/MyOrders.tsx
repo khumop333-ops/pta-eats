@@ -2,7 +2,15 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  TONE_CLASS,
+  assertOrderStatus,
+  statusLabel,
+  statusTone,
+  type OrderStatus,
+} from "@/domain/order/status";
 import Header from "@/components/Header";
+import { useRealtimeResubscribe, useRefetchOnReconnect } from "@/hooks/useRealtimeRecovery";
 import { Badge } from "@/components/ui/badge";
 import { Package, Clock, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -20,7 +28,7 @@ interface Order {
   subtotal: number;
   delivery_fee: number;
   total: number;
-  status: string;
+  status: OrderStatus;
   payment_method: string;
   payment_status: string;
 
@@ -29,15 +37,15 @@ interface Order {
   order_items: OrderItem[];
 }
 
-const statusStyles: Record<string, string> = {
-  New: "bg-accent text-accent-foreground",
-  Accepted: "bg-secondary text-secondary-foreground",
-  "Ready for Pickup/Delivery": "bg-primary text-primary-foreground",
-};
+// The previous map keyed on "New"/"Accepted"/"Ready for Pickup/Delivery". The
+// third value was never a real status — it only ever matched because the admin
+// dashboard was writing an invalid string. Styling now derives from the domain
+// module, so a customer sees the same wording the rider and vendor see.
 
 const MyOrders = () => {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+  const onResubscribe = useRealtimeResubscribe(() => fetchOrders());
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -61,7 +69,11 @@ const MyOrders = () => {
           .from("order_items")
           .select("*")
           .eq("order_id", order.id);
-        return { ...order, order_items: items || [] } as Order;
+        return {
+          ...order,
+          status: assertOrderStatus(order.status, "order"),
+          order_items: items || [],
+        } as Order;
       })
     );
     setOrders(withItems);
@@ -78,9 +90,13 @@ const MyOrders = () => {
     const channel = supabase
       .channel("my-orders")
       .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `user_id=eq.${user.id}` }, () => fetchOrders())
-      .subscribe();
+      .subscribe(onResubscribe);
     return () => { supabase.removeChannel(channel); };
-  }, [user]);
+  }, [user, onResubscribe]);
+
+  // A customer tracking a delivery should not be left looking at a status that
+  // stopped updating when their train went into a tunnel.
+  useRefetchOnReconnect(fetchOrders);
 
   if (authLoading) return null;
 
@@ -118,8 +134,8 @@ const MyOrders = () => {
                       </p>
                     </div>
                     <div className="flex items-center gap-3 ml-3">
-                      <Badge className={statusStyles[order.status] || ""} variant="secondary">
-                        {order.status}
+                      <Badge variant="outline" className={TONE_CLASS[statusTone(order.status)]}>
+                        {statusLabel(order.status)}
                       </Badge>
                       <span className="font-semibold text-foreground whitespace-nowrap">
                         R {Number(order.total).toFixed(2)}

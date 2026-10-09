@@ -1,0 +1,46 @@
+{
+  "id": "/",
+  "name": "ROMA – Local Food Delivery, Pretoria",
+  "short_name": "ROMA",
+  "description": "Order from local Pretoria restaurants. Delivery 08:00–16:00, Monday to Friday.",
+  "lang": "en-ZA",
+  "dir": "ltr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#0F392B",
+  "background_color": "#0F392B",
+  "categories": ["food", "shopping"],
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "My orders",
+      "short_name": "Orders",
+      "url": "/my-orders"
+    },
+    {
+      "name": "Rider dashboard",
+      "short_name": "Rider",
+      "url": "/deliverer"
+    }
+  ]
+}

@@ -1,5 +1,17 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { transitionOrQueue } from "@/data/orders/offlineTransition";
+import { describeTransition } from "@/domain/order/transition";
+import { useRealtimeResubscribe, useRefetchOnReconnect } from "@/hooks/useRealtimeRecovery";
+import {
+  TONE_CLASS,
+  actionLabel,
+  assertOrderStatus,
+  nextStatusesFor,
+  statusLabel,
+  statusTone,
+  type OrderStatus,
+} from "@/domain/order/status";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -27,17 +39,16 @@ interface OrderRow {
   subtotal: number;
   delivery_fee: number;
   total: number;
-  status: string;
+  status: OrderStatus;
   payment_method: string;
   payment_status: string;
   created_at: string;
   order_items?: { id: string; item_name: string; item_price: number; quantity: number }[];
 }
 
-const STATUSES = ["New", "Preparing", "Ready", "Picked Up", "On the Way", "Delivered"];
-
-const statusVariant = (status: string) =>
-  status === "New" ? "default" : status === "Delivered" ? "secondary" : "outline";
+// STATUSES previously listed "On the Way" — a value that has never existed in
+// the database. Rather than correct it, the buttons below are derived from the
+// real transition table, so an invalid status cannot be offered or submitted.
 
 export default function OwnerDashboard() {
   const navigate = useNavigate();
@@ -51,8 +62,21 @@ export default function OwnerDashboard() {
       .select("*, order_items(*)")
       .eq("restaurant_id", restaurantId)
       .order("created_at", { ascending: false });
-    setOrders((data as unknown as OrderRow[]) || []);
+    // The relation query is cast (pre-existing); status is additionally forced
+    // through the canonical guard so the union is real rather than asserted.
+    setOrders(
+      ((data as unknown as OrderRow[]) || []).map((o) => ({
+        ...o,
+        status: assertOrderStatus(o.status, "order"),
+      }))
+    );
   };
+
+  // Declared after loadOrders so every identifier it closes over is already in
+  // scope, rather than being read from its temporal dead zone.
+  const onResubscribe = useRealtimeResubscribe(() => {
+    if (restaurant) loadOrders(restaurant.id);
+  });
 
   useEffect(() => {
     let channel: ReturnType<typeof supabase.channel> | null = null;
@@ -87,19 +111,38 @@ export default function OwnerDashboard() {
           { event: "*", schema: "public", table: "orders", filter: `restaurant_id=eq.${rest.id}` },
           () => loadOrders(rest.id)
         )
-        .subscribe();
+        .subscribe(onResubscribe);
     };
 
     init();
 
     return () => { if (channel) supabase.removeChannel(channel); };
-  }, [navigate]);
+  }, [navigate, onResubscribe]);
 
-  const updateStatus = async (orderId: string, status: string) => {
-    const { error } = await supabase.from("orders").update({ status }).eq("id", orderId);
-    if (error) { toast.error("Could not update the order"); return; }
-    toast.success(`Order marked ${status}`);
-    if (restaurant) loadOrders(restaurant.id);
+  // Realtime does not replay what was missed while the connection was down, so a
+  // kitchen screen that slept through a drop would keep showing a stale board.
+  useRefetchOnReconnect(() => { if (restaurant) loadOrders(restaurant.id); });
+
+  // Owners act as actor='vendor'. This previously wrote status straight into the
+  // row, which bypassed the state machine entirely — an owner could jump an order
+  // to any status including 'delivered'.
+  //
+  // expectedFrom is the status rendered on this card. A busy kitchen runs several
+  // screens against the same order, so the compare-and-swap is what prevents two
+  // of them from both acting on the same stale view.
+  const updateStatus = async (
+    orderId: string,
+    expectedFrom: OrderStatus,
+    status: OrderStatus
+  ) => {
+    const result = await transitionOrQueue({
+      orderId,
+      to: status,
+      expectedFrom,
+    });
+    const feedback = describeTransition(result, status);
+    toast[feedback.tone](feedback.message);
+    if ((feedback.refresh || feedback.applied) && restaurant) loadOrders(restaurant.id);
   };
 
   const handleLogout = async () => {
@@ -125,7 +168,7 @@ export default function OwnerDashboard() {
     );
   }
 
-  const newCount = orders.filter((o) => o.status === "New").length;
+  const newCount = orders.filter((o) => o.status === "pending").length;
 
   return (
     <div className="min-h-screen bg-background">
@@ -170,7 +213,9 @@ export default function OwnerDashboard() {
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant={statusVariant(order.status)}>{order.status}</Badge>
+                      <Badge variant="outline" className={TONE_CLASS[statusTone(order.status)]}>
+                        {statusLabel(order.status)}
+                      </Badge>
                       <Badge variant="outline">
                         {order.payment_method === "cash" ? "Cash" : "Card"} ·{" "}
                         {order.payment_status === "paid" ? "Paid" : "Unpaid"}
@@ -198,9 +243,14 @@ export default function OwnerDashboard() {
                   </div>
 
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {STATUSES.filter((s) => s !== order.status).map((s) => (
-                      <Button key={s} size="sm" variant="outline" onClick={() => updateStatus(order.id, s)}>
-                        {s}
+                    {nextStatusesFor(order.status, "vendor").map((s) => (
+                      <Button
+                        key={s}
+                        size="sm"
+                        variant={s === "cancelled" ? "outline" : "default"}
+                        onClick={() => updateStatus(order.id, order.status, s)}
+                      >
+                        {actionLabel(s)}
                       </Button>
                     ))}
                   </div>

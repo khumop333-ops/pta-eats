@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import { clearQueue } from "@/lib/offline/queue";
 
 interface Profile {
   full_name: string | null;
@@ -64,6 +65,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const signOut = async () => {
     await supabase.auth.signOut();
+    // Clear the offline outbox on the way out. It names specific orders and the
+    // changes intended for them, and rider handsets are frequently shared — so
+    // the next person to sign in on this device should not be able to read what
+    // the previous rider was doing, nor have a queued write replayed under their
+    // session. (The queue also tags each item with a userId and refuses a
+    // mismatch; this is the belt to that pair of braces.)
+    try {
+      await clearQueue();
+    } catch {
+      // Storage unavailable. Never block a sign-out on cleanup.
+    }
     setSession(null);
     setProfile(null);
   };

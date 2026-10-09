@@ -1,10 +1,17 @@
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import type { Database } from "@/integrations/supabase/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { UserPlus } from "lucide-react";
 import { toast } from "sonner";
+
+/** Response shape of the admin-create-user edge function. */
+interface AdminCreateUserResponse {
+  error?: string;
+  userId?: string;
+}
 
 interface Props {
   restaurantId: number;
@@ -35,8 +42,9 @@ const RestaurantOwnerAssign = ({ restaurantId, restaurantName, currentOwnerId, o
       },
     });
 
-    if (error || (data as any)?.error) {
-      toast.error((data as any)?.error || error?.message || "Failed to create owner");
+    const result = data as AdminCreateUserResponse | null;
+    if (error || result?.error) {
+      toast.error(result?.error || error?.message || "Failed to create owner");
       setLoading(false);
       return;
     }

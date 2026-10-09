@@ -2,6 +2,18 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAdminAuth } from "@/context/AdminAuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { transitionOrQueue } from "@/data/orders/offlineTransition";
+import { describeTransition } from "@/domain/order/transition";
+import { useRealtimeResubscribe, useRefetchOnReconnect } from "@/hooks/useRealtimeRecovery";
+import {
+  TONE_CLASS,
+  actionLabel,
+  assertOrderStatus,
+  nextStatusesFor,
+  statusLabel,
+  statusTone,
+  type OrderStatus,
+} from "@/domain/order/status";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -35,7 +47,7 @@ interface Order {
   subtotal: number;
   delivery_fee: number;
   total: number;
-  status: string;
+  status: OrderStatus;
   payment_method: string;
   payment_status: string;
   created_at: string;
@@ -43,14 +55,13 @@ interface Order {
 }
 
 
-const statusColors: Record<string, string> = {
-  New: "bg-accent text-accent-foreground",
-  Accepted: "bg-secondary text-secondary-foreground",
-  "Ready for Pickup/Delivery": "bg-primary text-primary-foreground",
-};
-
+// The previous local colour map keyed on "New"/"Accepted"/"Ready for Pickup/
+// Delivery". That last value was never a real database status — nothing ever
+// wrote it, so the Ready button silently produced an invalid row once the CHECK
+// constraint existed. Presentation now derives from the domain module.
 const AdminDashboard = () => {
   const { isAuthenticated, loading: authLoading, logout } = useAdminAuth();
+  const onResubscribe = useRealtimeResubscribe(() => fetchOrders());
   const navigate = useNavigate();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
@@ -80,7 +91,11 @@ const AdminDashboard = () => {
           .from("order_items")
           .select("*")
           .eq("order_id", order.id);
-        return { ...order, order_items: items || [] } as Order;
+        return {
+          ...order,
+          status: assertOrderStatus(order.status, "order"),
+          order_items: items || [],
+        } as Order;
       })
     );
 
@@ -99,21 +114,40 @@ const AdminDashboard = () => {
         { event: "*", schema: "public", table: "orders" },
         () => { fetchOrders(); }
       )
-      .subscribe();
+      .subscribe(onResubscribe);
 
     return () => { supabase.removeChannel(channel); };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, onResubscribe]);
 
-  const updateStatus = async (orderId: string, newStatus: string) => {
-    const { error } = await supabase
-      .from("orders")
-      .update({ status: newStatus })
-      .eq("id", orderId);
+  // Realtime does not replay what was missed while the connection was down, so
+  // re-read the authoritative rows on reconnect and on resume.
+  useRefetchOnReconnect(fetchOrders);
 
-    if (error) {
-      toast.error("Failed to update status");
-    } else {
-      toast.success(`Order marked as "${newStatus}"`);
+  // Admin accounts act as 'system' (see current_actor() in the dispatch
+  // migration). Routing through the RPC keeps the transitions table as the
+  // single authority instead of writing status strings straight into the row.
+  //
+  // expectedFrom is the status this screen RENDERED. Sending it makes the update
+  // a compare-and-swap, so a second admin acting on a stale table gets told the
+  // order moved instead of silently overwriting the first admin's change.
+  const updateStatus = async (
+    orderId: string,
+    expectedFrom: OrderStatus,
+    newStatus: OrderStatus
+  ) => {
+    const result = await transitionOrQueue({
+      orderId,
+      to: newStatus,
+      expectedFrom,
+    });
+    const feedback = describeTransition(result, newStatus);
+    toast[feedback.tone](feedback.message);
+
+    if (feedback.refresh) {
+      fetchOrders();
+      return;
+    }
+    if (feedback.applied) {
       setOrders((prev) =>
         prev.map((o) => (o.id === orderId ? { ...o, status: newStatus } : o))
       );
@@ -239,18 +273,26 @@ const AdminDashboard = () => {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <Badge className={statusColors[order.status] || ""} variant="secondary">{order.status}</Badge>
+                          <Badge variant="outline" className={TONE_CLASS[statusTone(order.status)]}>
+                            {statusLabel(order.status)}
+                          </Badge>
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">
                           {new Date(order.created_at).toLocaleString("en-ZA")}
                         </TableCell>
                         <TableCell className="text-right space-x-2">
-                          {order.status === "New" && (
-                            <Button size="sm" variant="outline" onClick={() => updateStatus(order.id, "Accepted")}>Accept</Button>
-                          )}
-                          {(order.status === "New" || order.status === "Accepted") && (
-                            <Button size="sm" onClick={() => updateStatus(order.id, "Ready for Pickup/Delivery")}>Ready</Button>
-                          )}
+                          {/* Driven by the transition table, so admin is offered
+                              exactly the steps the database will accept. */}
+                          {nextStatusesFor(order.status, "system").map((next) => (
+                            <Button
+                              key={next}
+                              size="sm"
+                              variant={next === "cancelled" ? "outline" : "default"}
+                              onClick={() => updateStatus(order.id, order.status, next)}
+                            >
+                              {actionLabel(next)}
+                            </Button>
+                          ))}
                           {order.payment_status !== "paid" && (
                             <Button size="sm" variant="ghost" onClick={() => markPaid(order.id)}>Mark Paid</Button>
                           )}

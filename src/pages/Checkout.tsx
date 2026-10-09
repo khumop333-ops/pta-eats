@@ -12,15 +12,28 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { CreditCard, Banknote } from "lucide-react";
+import { CreditCard, Banknote, Clock, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
+import { fetchServiceAvailability, quoteOrder } from "@/data/orders/transitions";
+import {
+  type QuoteResult,
+  type ServiceAvailability,
+  closedMessage,
+  formatZAR,
+  quoteErrorMessage,
+} from "@/domain/order/pricing";
 
-const DELIVERY_FEE = 15;
+// DELIVERY_FEE used to live here as `const DELIVERY_FEE = 15` — one of four copies
+// of the same number (this file, create-order, orders.delivery_fee, and
+// orders.delivery_fee_cents). The client no longer computes money at all: the
+// totals below are rendered from the server quote produced by quote_order(),
+// which is the same function that prices the order at placement. They cannot
+// diverge, because there is only one of them.
 
 type PaymentMethod = "card" | "cash";
 
 const Checkout = () => {
-  const { items, subtotal, clearCart } = useCart();
+  const { items, clearCart } = useCart();
   const { user, profile } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
@@ -52,7 +65,35 @@ const Checkout = () => {
     }
   }, [profile]);
 
-  const total = subtotal + DELIVERY_FEE;
+  // ---- Server-authoritative quote -----------------------------------------
+  // Refetched whenever the basket changes, so the customer never sees a stale
+  // price. The quote also carries the service-window state, which is why the
+  // closed banner cannot disagree with what the Pay button does.
+  const [quote, setQuote] = useState<QuoteResult | null>(null);
+  const [quoteLoading, setQuoteLoading] = useState(false);
+  const [service, setService] = useState<ServiceAvailability | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchServiceAvailability().then((s) => { if (!cancelled) setService(s); });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (items.length === 0) { setQuote(null); return; }
+    let cancelled = false;
+    setQuoteLoading(true);
+    quoteOrder(items.map((i) => ({ menuItemId: i.id, quantity: i.quantity })))
+      .then((q) => { if (!cancelled) setQuote(q); })
+      .finally(() => { if (!cancelled) setQuoteLoading(false); });
+    return () => { cancelled = true; };
+  }, [items]);
+
+  const priced = quote?.ok ? quote : null;
+  const closedNotice = service ? closedMessage(service) : null;
+  // Blocking on the quote is deliberate: placing an order whose price we have not
+  // confirmed is worse than making the customer wait a beat.
+  const canSubmit = Boolean(priced) && priced?.canPlaceOrder !== false && !quoteLoading;
 
   if (items.length === 0) {
     return (
@@ -79,6 +120,7 @@ const Checkout = () => {
         address: form.address,
         instructions: form.instructions || null,
         paymentMethod,
+        zone: priced?.zone ?? "central",
         items: items.map((item) => ({ menuItemId: item.id, quantity: item.quantity })),
       },
     });
@@ -91,7 +133,15 @@ const Checkout = () => {
           ? await createError.context.text()
           : createError?.message;
       console.error("create-order failed:", details);
-      toast.error("Failed to place order. Please try again.");
+      // A closed storefront is a 409 with a specific code; show the real reason
+      // rather than a generic failure the customer cannot act on.
+      let message = "Failed to place order. Please try again.";
+      try {
+        const parsed = JSON.parse(String(details));
+        if (parsed?.code === "service_closed") message = "We're closed right now.";
+        else if (typeof parsed?.error === "string") message = parsed.error;
+      } catch { /* non-JSON error body — keep the generic message */ }
+      toast.error(message);
       setLoading(false);
       return;
     }
@@ -191,7 +241,14 @@ const Checkout = () => {
                   <span>
                     {item.quantity}× {item.name}
                   </span>
-                  <span className="font-medium">R {(item.price * item.quantity).toFixed(2)}</span>
+                  <span className="font-medium">
+                    {/* Rendered from the server line total when available, so the
+                        per-line figures cannot contradict the summary below. */}
+                    {formatZAR(
+                      priced?.items.find((l) => l.menuItemId === item.id)?.lineTotalCents ??
+                        Math.round(item.price * 100) * item.quantity
+                    )}
+                  </span>
                 </div>
               ))}
 
@@ -199,11 +256,13 @@ const Checkout = () => {
 
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Subtotal</span>
-                <span>R {subtotal.toFixed(2)}</span>
+                <span>{priced ? formatZAR(priced.subtotalCents) : "—"}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Delivery Fee</span>
-                <span>R {DELIVERY_FEE.toFixed(2)}</span>
+                <span className="text-muted-foreground">
+                  Delivery{priced ? ` · ${priced.zoneLabel}` : ""}
+                </span>
+                <span>{priced ? formatZAR(priced.deliveryFeeCents) : "—"}</span>
               </div>
 
               <Separator />
@@ -257,23 +316,43 @@ const Checkout = () => {
 
               <div className="flex justify-between text-lg font-bold">
                 <span>Total</span>
-                <span>R {total.toFixed(2)}</span>
+                <span>{priced ? formatZAR(priced.totalCents) : "—"}</span>
               </div>
+
+              {/* Service window and pricing failures. Both are rendered from
+                  server state, so they cannot contradict what submission does. */}
+              {closedNotice && (
+                <div className="flex items-start gap-2 rounded-md border border-accent/40 bg-accent/5 p-3 text-sm">
+                  <Clock className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
+                  <p className="text-foreground">{closedNotice}</p>
+                </div>
+              )}
+
+              {quote && !quote.ok && (
+                <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                  <p className="text-foreground">{quoteErrorMessage(quote)}</p>
+                </div>
+              )}
 
               <Button
                 type="submit"
                 form="checkout-form"
                 className="w-full mt-4"
                 size="lg"
-                disabled={loading}
+                disabled={loading || !canSubmit}
               >
                 {loading
                   ? paymentMethod === "card"
                     ? "Redirecting to payment…"
                     : "Placing Order..."
-                  : paymentMethod === "card"
-                    ? `Pay R ${total.toFixed(2)}`
-                    : "Place Order"}
+                  : quoteLoading
+                    ? "Checking your total…"
+                    : !priced
+                      ? "Checking your total…"
+                      : paymentMethod === "card"
+                        ? `Pay ${formatZAR(priced.totalCents)}`
+                        : `Place Order · ${formatZAR(priced.totalCents)}`}
               </Button>
 
             </CardContent>

@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import type { Database } from "@/integrations/supabase/types";
 
 export interface MenuItem {
   id: string;
@@ -57,7 +58,10 @@ export async function fetchRestaurantById(id: number): Promise<Restaurant | null
   return mapRestaurant(r, menuItems || []);
 }
 
-function mapRestaurant(r: any, items: any[]): Restaurant {
+type RestaurantRow = Database["public"]["Tables"]["restaurants"]["Row"];
+type MenuItemRow = Database["public"]["Tables"]["menu_items"]["Row"];
+
+function mapRestaurant(r: RestaurantRow, items: MenuItemRow[]): Restaurant {
   return {
     id: r.id,
     name: r.name,

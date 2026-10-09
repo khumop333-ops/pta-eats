@@ -97,6 +97,12 @@ export type Database = {
           deliverer_id: string | null
           delivery_address: string
           delivery_fee: number
+          assigned_at: string | null
+          picked_up_at: string | null
+          delivered_at: string | null
+          delivery_suburb: string | null
+          delivery_zone: string | null
+          delivery_fee_cents: number
           id: string
           paid_at: string | null
           payment_method: string
@@ -106,6 +112,9 @@ export type Database = {
           restaurant_id: number
           restaurant_name: string
           special_instructions: string | null
+          // Constrained by orders_status_check. See src/domain/order/status.ts
+          // for the canonical union; narrow with assertOrderStatus() at the
+          // trust boundary rather than casting.
           status: string
           subtotal: number
           total: number
@@ -118,6 +127,12 @@ export type Database = {
           deliverer_id?: string | null
           delivery_address: string
           delivery_fee?: number
+          assigned_at?: string | null
+          picked_up_at?: string | null
+          delivered_at?: string | null
+          delivery_suburb?: string | null
+          delivery_zone?: string | null
+          delivery_fee_cents?: number
           id?: string
           paid_at?: string | null
           payment_method?: string
@@ -139,6 +154,12 @@ export type Database = {
           deliverer_id?: string | null
           delivery_address?: string
           delivery_fee?: number
+          assigned_at?: string | null
+          picked_up_at?: string | null
+          delivered_at?: string | null
+          delivery_suburb?: string | null
+          delivery_zone?: string | null
+          delivery_fee_cents?: number
           id?: string
           paid_at?: string | null
           payment_method?: string
@@ -252,6 +273,63 @@ export type Database = {
       owns_restaurant: {
         Args: { _restaurant_id: number; _user_id: string }
         Returns: boolean
+      }
+      // --- Added by the dispatch slice (20261005120000_dispatch_core.sql).
+      // Hand-written to match the migration; regenerate with
+      // `supabase gen types typescript` when convenient.
+      claim_order: {
+        Args: { p_order_id: string }
+        Returns: Json
+      }
+      // 3-arg CAS form (20261005160000_offline_safe_transitions.sql).
+      // p_expected_from is optional on the wire because the SQL declares
+      // DEFAULT NULL; when omitted the RPC takes its strict path and validates
+      // against the order's CURRENT state rather than a caller expectation.
+      //
+      // The old 2-arg overload was DROPped by that migration. Leaving both in
+      // place would make every 2-argument call ambiguous ("function ... is not
+      // unique") and take the whole dispatch flow down — verified in
+      // supabase/tests/offline-replay.test.mjs section 7.
+      transition_order_status: {
+        Args: {
+          p_order_id: string
+          p_to: string
+          p_expected_from?: string | null
+        }
+        Returns: Json
+      }
+      list_open_jobs: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          id: string
+          restaurant_name: string
+          pickup_suburb: string
+          dropoff_suburb: string
+          fee_cents: number
+          zone: string
+          created_at: string
+          age_seconds: number
+        }[]
+      }
+      is_within_service_window: {
+        Args: Record<PropertyKey, never>
+        Returns: boolean
+      }
+      current_actor: {
+        Args: Record<PropertyKey, never>
+        Returns: string
+      }
+      // --- Added by the pricing slice (20261005140000_...sql).
+      // quote_order returns jsonb rather than a composite so that PostgREST and
+      // supabase-js can transport it unambiguously; narrow it with the QuoteResult
+      // union from src/domain/order/pricing.ts at the call site.
+      quote_order: {
+        Args: { p_items: Json; p_zone?: string | null }
+        Returns: Json
+      }
+      service_availability: {
+        Args: Record<PropertyKey, never>
+        Returns: Json
       }
     }
     Enums: {
