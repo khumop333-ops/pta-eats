@@ -7,7 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Truck, MapPin, Phone, User, Package, LogOut, Navigation } from "lucide-react";
+import { Truck, MapPin, Phone, User, Package, LogOut, Navigation, Hand } from "lucide-react";
+import { DELIVERER_STATUS_OPTIONS, isClaimable } from "@/lib/order-status";
 
 interface OrderItem {
   id: string;
@@ -27,17 +28,10 @@ interface Order {
   subtotal: number;
   delivery_fee: number;
   special_instructions: string | null;
+  deliverer_id: string | null;
   created_at: string;
   items: OrderItem[];
 }
-
-const STATUS_OPTIONS = [
-  "New",
-  "Accepted",
-  "Picked Up",
-  "On the Way",
-  "Delivered",
-];
 
 const statusColor = (status: string) => {
   switch (status) {
@@ -119,6 +113,27 @@ const DelivererDashboard = () => {
     setLoading(false);
   };
 
+  const claimOrder = async (orderId: string) => {
+    const { data: claimed, error } = await supabase.rpc("claim_order", {
+      p_order_id: orderId,
+    });
+
+    if (error) {
+      toast.error("Could not claim that order");
+      await fetchOrders();
+      return;
+    }
+
+    if (claimed !== true) {
+      toast.error("Another driver already claimed that order");
+      await fetchOrders();
+      return;
+    }
+
+    toast.success("Order claimed - it's yours now");
+    await fetchOrders();
+  };
+
   const updateStatus = async (orderId: string, newStatus: string) => {
     const { error } = await supabase
       .from("orders")
@@ -126,7 +141,10 @@ const DelivererDashboard = () => {
       .eq("id", orderId);
 
     if (error) {
-      toast.error("Failed to update status");
+      // Row Level Security now limits deliverers to orders assigned to them, so a
+      // failure here usually means the order was reassigned while this tab was open.
+      toast.error("Failed to update status. Claim the order first.");
+      await fetchOrders();
     } else {
       toast.success(`Status updated to "${newStatus}"`);
     }
@@ -150,8 +168,15 @@ const DelivererDashboard = () => {
     );
   }
 
-  const activeOrders = orders.filter((o) => o.status !== "Delivered");
-  const completedOrders = orders.filter((o) => o.status === "Delivered");
+  const activeOrders = orders.filter(
+    (o) => o.status !== "Delivered" && o.deliverer_id === user?.id
+  );
+  const availableOrders = orders.filter(
+    (o) => o.deliverer_id === null && isClaimable(o.status)
+  );
+  const completedOrders = orders.filter(
+    (o) => o.status === "Delivered" && o.deliverer_id === user?.id
+  );
 
   return (
     <div className="min-h-screen bg-background">
@@ -178,23 +203,53 @@ const DelivererDashboard = () => {
           </div>
         ) : (
           <>
-            {/* Active Orders */}
-            {activeOrders.length > 0 && (
+            {/* Unclaimed board */}
+            {availableOrders.length > 0 && (
               <section>
                 <h2 className="font-display text-lg font-semibold text-foreground mb-3">
-                  Active Orders ({activeOrders.length})
+                  Available to Claim ({availableOrders.length})
                 </h2>
                 <div className="space-y-4">
-                  {activeOrders.map((order) => (
+                  {availableOrders.map((order) => (
                     <OrderCard
                       key={order.id}
                       order={order}
+                      currentUserId={user?.id}
+                      onClaim={claimOrder}
                       onUpdateStatus={updateStatus}
                       onOpenMaps={openMaps}
                     />
                   ))}
                 </div>
               </section>
+            )}
+
+            {/* Active Orders */}
+            {activeOrders.length > 0 && (
+              <section>
+                <h2 className="font-display text-lg font-semibold text-foreground mb-3">
+                  My Active Orders ({activeOrders.length})
+                </h2>
+                <div className="space-y-4">
+                  {activeOrders.map((order) => (
+                    <OrderCard
+                      key={order.id}
+                      order={order}
+                      currentUserId={user?.id}
+                      onClaim={claimOrder}
+                      onUpdateStatus={updateStatus}
+                      onOpenMaps={openMaps}
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {availableOrders.length === 0 && activeOrders.length === 0 && (
+              <div className="text-center py-16">
+                <Package className="mx-auto h-12 w-12 text-muted-foreground/50 mb-3" />
+                <p className="text-muted-foreground">Nothing to deliver right now</p>
+              </div>
             )}
 
             {/* Completed */}
@@ -208,6 +263,8 @@ const DelivererDashboard = () => {
                     <OrderCard
                       key={order.id}
                       order={order}
+                      currentUserId={user?.id}
+                      onClaim={claimOrder}
                       onUpdateStatus={updateStatus}
                       onOpenMaps={openMaps}
                     />
@@ -224,14 +281,20 @@ const DelivererDashboard = () => {
 
 function OrderCard({
   order,
+  currentUserId,
+  onClaim,
   onUpdateStatus,
   onOpenMaps,
 }: {
   order: Order;
+  currentUserId?: string;
+  onClaim: (id: string) => void;
   onUpdateStatus: (id: string, status: string) => void;
   onOpenMaps: (address: string) => void;
 }) {
   const isCompleted = order.status === "Delivered";
+  const isMine = order.deliverer_id !== null && order.deliverer_id === currentUserId;
+  const isUnclaimed = order.deliverer_id === null;
 
   return (
     <Card className={isCompleted ? "opacity-70" : ""}>
@@ -247,6 +310,9 @@ function OrderCard({
             {order.status}
           </Badge>
         </div>
+        {isMine && (
+          <p className="mt-1 text-xs font-medium text-primary">Assigned to you</p>
+        )}
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Customer info */}
@@ -305,23 +371,36 @@ function OrderCard({
           </div>
         )}
 
-        {/* Status update */}
-        {!isCompleted && (
-          <div className="flex items-center gap-2">
-            <Select
-              value={order.status}
-              onValueChange={(val) => onUpdateStatus(order.id, val)}
-            >
-              <SelectTrigger className="flex-1">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {STATUS_OPTIONS.map((s) => (
-                  <SelectItem key={s} value={s}>{s}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+        {/* Status update / claiming */}
+        {isUnclaimed ? (
+          isClaimable(order.status) && (
+            <Button className="w-full" size="sm" onClick={() => onClaim(order.id)}>
+              <Hand className="mr-2 h-4 w-4" />
+              Claim this delivery
+            </Button>
+          )
+        ) : isMine ? (
+          !isCompleted && (
+            <div className="flex items-center gap-2">
+              <Select
+                value={order.status}
+                onValueChange={(val) => onUpdateStatus(order.id, val)}
+              >
+                <SelectTrigger className="flex-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {DELIVERER_STATUS_OPTIONS.map((s) => (
+                    <SelectItem key={s} value={s}>{s}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )
+        ) : (
+          <p className="text-xs text-muted-foreground text-center">
+            Another driver is handling this delivery.
+          </p>
         )}
       </CardContent>
     </Card>

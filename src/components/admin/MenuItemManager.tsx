@@ -38,11 +38,19 @@ const MenuItemManager = ({ restaurantId }: { restaurantId: number }) => {
       return;
     }
 
+    // The database enforces CHECK (price >= 0) on menu_items, so reject a bad
+    // price here with a clear message instead of surfacing a constraint error.
+    const price = Number.parseFloat(form.price);
+    if (!Number.isFinite(price) || price < 0) {
+      toast.error("Price must be a positive amount in rand");
+      return;
+    }
+
     const payload = {
       restaurant_id: restaurantId,
       name: form.name,
       description: form.description,
-      price: parseFloat(form.price),
+      price,
       category: form.category || "Mains",
     };
 

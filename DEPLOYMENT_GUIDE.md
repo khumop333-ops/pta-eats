@@ -27,10 +27,27 @@ You are **fully free of Lovable**. This repository is a standard Vite + React + 
 - `/owner/login`, `/owner` – Restaurant owner dashboard
 
 ### Supabase Edge Functions (deployed under `supabase/functions/`)
-- `admin-create-user` – Create users with roles
-- `create-ikhokha-payment` – Initiate iKhokha payment
-- `ikhokha-webhook` – Receive payment confirmation from iKhokha
-- `create-order` – Create an order transactionally
+
+| Function | Purpose | `verify_jwt` | Authorization |
+|---|---|---|---|
+| `admin-create-user` | Create deliverer / restaurant-owner accounts | `true` | Bearer token must resolve to a user with the `admin` role |
+| `create-order` | Create an order and its items in one atomic DB call | `true` | Signed-in customer; prices come from `menu_items`, never the client |
+| `create-ikhokha-payment` | Create an iKhokha paylink for an order | `true` | Signed-in customer who owns the order |
+| `ikhokha-webhook` | Receive the payment callback from iKhokha | **`false`** | `IK-SIGN` HMAC verified against `IKHOKHA_APP_SECRET` |
+
+`verify_jwt` is set in `supabase/config.toml`. It matters: Supabase rejects a
+function request at the gateway unless it carries a Supabase-issued JWT, *before*
+your handler code runs. iKhokha cannot send one, so `ikhokha-webhook` opts out and
+verifies the provider's HMAC signature instead. If you deploy that function without
+the config entry, every card payment stays `pending` forever.
+
+Deploying the backend (after any change to `supabase/`):
+
+```bash
+supabase link --project-ref jxfjbxrrbpfibdhwlhyh
+supabase db push          # applies migrations in supabase/migrations/
+supabase functions deploy # applies config.toml, including verify_jwt
+```
 
 ---
 
@@ -169,7 +186,78 @@ Required at runtime (built into the JS bundle, hence the `VITE_` prefix):
 | `VITE_SUPABASE_URL` | Supabase project → Settings → API → Project URL |
 | `VITE_SUPABASE_PUBLISHABLE_KEY` | Supabase project → Settings → API → `anon` public key |
 
-The iKhokha secret key should **NOT** be in Vite env vars — it must live as a Supabase Edge Function secret (set via `supabase secrets set IKHOKHA_SECRET_KEY=...`). The frontend never touches it.
+The iKhokha credentials must **NOT** be in Vite env vars — they live as Supabase
+Edge Function secrets and the frontend never touches them. Set all three:
+
+```bash
+supabase secrets set \
+  IKHOKHA_APP_ID=your-ikhokha-app-id \
+  IKHOKHA_APP_SECRET=your-ikhokha-app-secret \
+  IKHOKHA_MODE=live
+```
+
+These are the exact names the functions read (`Deno.env.get('IKHOKHA_APP_ID')`,
+`IKHOKHA_APP_SECRET`, `IKHOKHA_MODE`). `IKHOKHA_MODE` defaults to `live` if unset.
+`SUPABASE_URL`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` are injected
+into every Edge Function automatically — you do not set those.
+
+If `IKHOKHA_APP_ID` / `IKHOKHA_APP_SECRET` are missing, `create-ikhokha-payment`
+returns "iKhokha is not configured yet" and the checkout falls back to telling the
+customer to pay cash on delivery, so card payments fail quietly rather than loudly.
+
+### `.env`
+
+`.env` is gitignored and **not** tracked. It only ever holds the two public
+`VITE_*` values above (the anon/publishable key is public by design and is shipped
+inside the JS bundle), but it should still not be committed — a tracked `.env` is
+how a secret eventually leaks. Copy `.env.example` to `.env` locally.
+
+---
+
+## Backend behaviour you need to know about
+
+These changed on 2026-10-10. Both migrations must be applied (`supabase db push`)
+and the functions redeployed (`supabase functions deploy`) for the app to work.
+
+**Deliverers now claim orders.** Previously any deliverer could change the status
+of *any* order in the system, including orders belonging to other drivers. Now a
+deliverer sees an "Available to Claim" board, taps **Claim this delivery**, and can
+only update orders assigned to them. Claiming runs through the `claim_order` RPC,
+which assigns the order conditionally so two drivers cannot both get it, and moves
+a `New` order to `Accepted`. Deliverers can still *read* all orders — the pickup
+board has to show unclaimed ones — so the customer name/phone/address exposure to
+any deliverer account is unchanged and is still worth reviewing.
+
+**Status values are constrained by the database.** `orders.status` and
+`orders.payment_status` now have `CHECK` constraints, so a status string that the
+app never intended (a typo, or a value from an old client) is rejected instead of
+silently becoming a stuck order. Every list the UI offers comes from
+`src/lib/order-status.ts`, and `src/test/order-status.test.ts` fails if the UI and
+the migration ever disagree. The allowed statuses are the union of what the admin,
+owner and deliverer dashboards already used.
+
+**Menu prices and ratings are validated.** `menu_items.price >= 0` and
+`restaurants.rating` between 0 and 5 are enforced in Postgres, because those writes
+come straight from the admin/owner UI rather than through an Edge Function.
+
+If `supabase db push` fails with *"check constraint ... is violated by some row"*,
+your `orders` table already holds a status string no current screen can produce.
+That is exactly what the constraint is for — run the `SELECT status,
+payment_status, payment_method, count(*) ... GROUP BY` query in the header of the
+migration, map the stray values onto the allowed list, and push again. Do not relax
+the constraint to get past it.
+
+**Card payment callbacks are idempotent.** iKhokha retries callbacks, and retries
+can arrive out of order. Once an order is `paid`, the webhook will not move it back
+to `pending` or `failed`, and it will not clear `paid_at`. An event with an
+unrecognised status is acknowledged without touching the order.
+
+**Orders are written atomically.** `create-order` now calls the
+`create_order_with_items` Postgres function, which inserts the order and its items
+in one operation. It previously inserted the order first and deleted it if the items
+failed, so a crash in between left an order with no items. The delivery fee is read
+from the `app_settings` table inside that function, so it has a single source of
+truth and the client cannot influence it.
 
 ---
 
@@ -181,7 +269,8 @@ The iKhokha secret key should **NOT** be in Vite env vars — it must live as a 
 - Fixed `@import` ordering in `src/index.css` so production builds are clean.
 - Vite dev/preview server now binds to `0.0.0.0:8080` with `allowedHosts: true` (runs anywhere).
 - Added `.env.example` template.
-- `.env` is now in `.gitignore` so your keys are not accidentally committed.
+- `.env` is in `.gitignore` **and** untracked (it had been committed before the
+  ignore rule existed, and ignore rules do not apply to already-tracked files).
 - The existing `vercel.json` SPA rewrite is kept so deploys "just work" on Vercel.
 
 ---

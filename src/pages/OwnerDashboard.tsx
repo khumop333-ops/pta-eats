@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import MenuItemManager from "@/components/admin/MenuItemManager";
 import { LogOut, Star, Clock, Phone, MapPin } from "lucide-react";
 import { toast } from "sonner";
+import { OWNER_STATUS_OPTIONS } from "@/lib/order-status";
 
 interface RestaurantRow {
   id: number;
@@ -34,7 +35,7 @@ interface OrderRow {
   order_items?: { id: string; item_name: string; item_price: number; quantity: number }[];
 }
 
-const STATUSES = ["New", "Preparing", "Ready", "Picked Up", "On the Way", "Delivered"];
+
 
 const statusVariant = (status: string) =>
   status === "New" ? "default" : status === "Delivered" ? "secondary" : "outline";
@@ -198,7 +199,7 @@ export default function OwnerDashboard() {
                   </div>
 
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {STATUSES.filter((s) => s !== order.status).map((s) => (
+                    {OWNER_STATUS_OPTIONS.filter((s) => s !== order.status).map((s) => (
                       <Button key={s} size="sm" variant="outline" onClick={() => updateStatus(order.id, s)}>
                         {s}
                       </Button>
