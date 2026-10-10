@@ -14,6 +14,21 @@ export type Database = {
   }
   public: {
     Tables: {
+      app_settings: {
+        Row: {
+          key: string
+          value: string
+        }
+        Insert: {
+          key: string
+          value: string
+        }
+        Update: {
+          key?: string
+          value?: string
+        }
+        Relationships: []
+      }
       menu_items: {
         Row: {
           category: string
@@ -242,6 +257,29 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      claim_order: {
+        Args: { p_order_id: string }
+        Returns: boolean
+      }
+      create_order_with_items: {
+        Args: {
+          p_customer_name: string
+          p_delivery_address: string
+          p_items: Json
+          p_payment_method: string
+          p_phone_number: string
+          p_restaurant_id: number
+          p_restaurant_name: string
+          p_special_instructions: string | null
+          p_subtotal: number
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      current_delivery_fee: {
+        Args: Record<PropertyKey, never>
+        Returns: number
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]

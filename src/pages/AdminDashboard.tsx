@@ -17,6 +17,8 @@ import { UtensilsCrossed, LogOut, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import RestaurantManager from "@/components/admin/RestaurantManager";
 import DelivererManager from "@/components/admin/DelivererManager";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ADMIN_STATUS_OPTIONS } from "@/lib/order-status";
 
 interface OrderItem {
   id: string;
@@ -43,11 +45,7 @@ interface Order {
 }
 
 
-const statusColors: Record<string, string> = {
-  New: "bg-accent text-accent-foreground",
-  Accepted: "bg-secondary text-secondary-foreground",
-  "Ready for Pickup/Delivery": "bg-primary text-primary-foreground",
-};
+
 
 const AdminDashboard = () => {
   const { isAuthenticated, loading: authLoading, logout } = useAdminAuth();
@@ -239,7 +237,21 @@ const AdminDashboard = () => {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <Badge className={statusColors[order.status] || ""} variant="secondary">{order.status}</Badge>
+                          {/* Admins can set any status; the options come from the same
+                              list the database CHECK constraint allows. */}
+                          <Select
+                            value={order.status}
+                            onValueChange={(val) => updateStatus(order.id, val)}
+                          >
+                            <SelectTrigger className="h-8 w-[180px]">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {ADMIN_STATUS_OPTIONS.map((s) => (
+                                <SelectItem key={s} value={s}>{s}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">
                           {new Date(order.created_at).toLocaleString("en-ZA")}

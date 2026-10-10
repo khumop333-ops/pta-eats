@@ -95,10 +95,17 @@ const RestaurantManager = () => {
       return;
     }
 
+    // The database enforces CHECK (rating >= 0 AND rating <= 5), so clamp here
+    // rather than surfacing a constraint violation to the admin.
+    const parsedRating = Number.parseFloat(form.rating);
+    const rating = Number.isFinite(parsedRating)
+      ? Math.min(5, Math.max(0, parsedRating))
+      : 4.0;
+
     const payload = {
       name: form.name,
       cuisine: form.cuisine,
-      rating: parseFloat(form.rating) || 4.0,
+      rating,
       image_url: form.image_url || "/placeholder.svg",
       delivery_time: form.delivery_time || "30-40 min",
     };

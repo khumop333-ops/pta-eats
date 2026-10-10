@@ -1,1 +1,37 @@
 project_id = "jxfjbxrrbpfibdhwlhyh"
+
+# Edge Function JWT verification.
+#
+# Supabase verifies a Supabase-issued JWT on every function request unless
+# verify_jwt is explicitly set to false for that function. The gateway rejects the
+# request before any handler code runs, so a function that authenticates some other
+# way must opt out here.
+#
+# IMPORTANT: verify_jwt = false makes a function reachable by anyone on the
+# internet. Every function below that opts out MUST enforce its own authorization,
+# and each one does - see the note on each entry.
+
+[functions.ikhokha-webhook]
+# iKhokha posts payment callbacks here and sends an IK-SIGN HMAC header, not a
+# Supabase JWT. With verification left on, every callback was rejected at the
+# gateway and card payments could never be confirmed.
+# Authorization: the handler verifies the HMAC signature against
+# IKHOKHA_APP_SECRET and rejects the request if it does not match, and re-checks
+# the reported amount against the stored order total before marking anything paid.
+verify_jwt = false
+
+[functions.create-order]
+# Called by signed-in customers via supabase.functions.invoke, which attaches the
+# session token. Verification stays on, and the handler additionally calls
+# auth.getUser() and returns 401 without a valid user.
+verify_jwt = true
+
+[functions.create-ikhokha-payment]
+# Same as create-order: signed-in customers only. The handler also checks that the
+# order belongs to the caller before creating a paylink.
+verify_jwt = true
+
+[functions.admin-create-user]
+# Admins only. Verification stays on, and the handler resolves the bearer token
+# then requires the 'admin' role via has_role(), returning 403 otherwise.
+verify_jwt = true

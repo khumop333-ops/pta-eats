@@ -2,8 +2,6 @@ import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { z } from 'npm:zod@3';
 
-const DELIVERY_FEE = 15;
-
 const BodySchema = z.object({
   customerName: z.string().trim().min(1).max(120),
   phone: z.string().trim().min(5).max(30),
@@ -75,56 +73,60 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (restErr || !restaurant) return json({ error: 'Restaurant not found' }, 400);
 
+    // Collapse duplicate menu item ids into a single line per item so the quantity
+    // sent to the database is the quantity actually charged for.
+    const quantityById = new Map<string, number>();
+    for (const i of body.items) {
+      quantityById.set(i.menuItemId, (quantityById.get(i.menuItemId) ?? 0) + i.quantity);
+    }
+
     const priceById = new Map(menuItems.map((m) => [m.id, m]));
-    const orderItems = body.items.map((i) => {
-      const m = priceById.get(i.menuItemId)!;
+    const orderItems = [...quantityById.entries()].map(([id, quantity]) => {
+      const m = priceById.get(id)!;
       return {
         item_name: m.name,
         item_price: Number(m.price),
-        quantity: i.quantity,
+        quantity,
       };
     });
 
     const subtotal = orderItems.reduce((sum, i) => sum + i.item_price * i.quantity, 0);
     const roundedSubtotal = Math.round(subtotal * 100) / 100;
-    const total = Math.round((roundedSubtotal + DELIVERY_FEE) * 100) / 100;
 
-    const { data: order, error: orderErr } = await admin
-      .from('orders')
-      .insert({
-        customer_name: body.customerName,
-        phone_number: body.phone,
-        delivery_address: body.address,
-        special_instructions: body.instructions || null,
-        restaurant_id: restaurant.id,
-        restaurant_name: restaurant.name,
-        subtotal: roundedSubtotal,
-        delivery_fee: DELIVERY_FEE,
-        total,
-        status: 'New',
-        user_id: userData.user.id,
-        payment_method: body.paymentMethod,
-        payment_status: 'pending',
-      })
-      .select('id, total')
-      .single();
+    // The order and its items are written by one SECURITY DEFINER function, so a
+    // failure can no longer leave an order row behind with no items. The delivery
+    // fee and total are computed inside that function from app_settings.
+    const { data: result, error: orderErr } = await admin.rpc('create_order_with_items', {
+      p_customer_name: body.customerName,
+      p_phone_number: body.phone,
+      p_delivery_address: body.address,
+      p_special_instructions: body.instructions || null,
+      p_restaurant_id: restaurant.id,
+      p_restaurant_name: restaurant.name,
+      p_subtotal: roundedSubtotal,
+      p_payment_method: body.paymentMethod,
+      p_user_id: userData.user.id,
+      p_items: orderItems,
+    });
 
-    if (orderErr || !order) {
+    if (orderErr || !result) {
       console.error('create-order: insert failed:', orderErr?.message);
       return json({ error: 'Could not place your order' }, 500);
     }
 
-    const { error: itemsErr } = await admin
-      .from('order_items')
-      .insert(orderItems.map((i) => ({ ...i, order_id: order.id })));
+    const created = result as {
+      orderId: string;
+      subtotal: number;
+      deliveryFee: number;
+      total: number;
+    };
 
-    if (itemsErr) {
-      console.error('create-order: items insert failed:', itemsErr.message);
-      await admin.from('orders').delete().eq('id', order.id);
-      return json({ error: 'Could not place your order' }, 500);
-    }
-
-    return json({ orderId: order.id, subtotal: roundedSubtotal, deliveryFee: DELIVERY_FEE, total });
+    return json({
+      orderId: created.orderId,
+      subtotal: created.subtotal,
+      deliveryFee: created.deliveryFee,
+      total: created.total,
+    });
   } catch (err) {
     console.error('create-order error:', err);
     return json({ error: 'Could not place your order' }, 500);
