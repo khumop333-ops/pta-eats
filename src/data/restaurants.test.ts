@@ -1,16 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const backendMock = vi.hoisted(() => ({
-  fetchRestaurants: vi.fn(),
-  fetchRestaurantById: vi.fn(),
-}));
 const supabaseMock = vi.hoisted(() => ({ from: vi.fn() }));
-
-vi.mock("@/lib/backend", () => ({
-  backendEnabled: true,
-  fetchRestaurantsFromBackend: backendMock.fetchRestaurants,
-  fetchRestaurantByIdFromBackend: backendMock.fetchRestaurantById,
-}));
 
 vi.mock("@/integrations/supabase/client", () => ({ supabase: supabaseMock }));
 
@@ -29,8 +19,6 @@ describe("restaurant data fallbacks", () => {
   beforeEach(() => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.clearAllMocks();
-    backendMock.fetchRestaurants.mockResolvedValue([]);
-    backendMock.fetchRestaurantById.mockRejectedValue(new Error("Backend unavailable"));
     supabaseMock.from.mockReturnValue(makeQuery({ data: [], error: null }));
   });
 
@@ -38,7 +26,7 @@ describe("restaurant data fallbacks", () => {
     vi.restoreAllMocks();
   });
 
-  it("returns demo restaurants and menus when both data sources are empty", async () => {
+  it("returns demo restaurants and menus when Supabase returns no data", async () => {
     const restaurants = await fetchRestaurants();
 
     expect(restaurants).toHaveLength(4);
@@ -51,20 +39,26 @@ describe("restaurant data fallbacks", () => {
   });
 
   it("maps old Vite source asset URLs to public image paths", async () => {
-    backendMock.fetchRestaurants.mockResolvedValue([
-      {
-        id: 2,
-        name: "Pretoria Grill House",
-        cuisine: "Grill & BBQ",
-        rating: 4.6,
-        image_url: "/src/assets/restaurant-2.jpg",
-        delivery_time: "20-30 min",
-      },
-    ]);
+    supabaseMock.from.mockReturnValue(
+      makeQuery({
+        data: [
+          {
+            id: 2,
+            name: "Pretoria Grill House",
+            cuisine: "Grill & BBQ",
+            rating: 4.6,
+            image_url: "/src/assets/restaurant-2.jpg",
+            delivery_time: "20-30 min",
+          },
+        ],
+        error: null,
+      }),
+    );
 
-    const [restaurant] = await fetchRestaurants();
+    const restaurants = await fetchRestaurants();
 
-    expect(restaurant.image).toBe("/restaurant-2.jpg");
+    expect(restaurants).toHaveLength(1);
+    expect(restaurants[0].image).toBe("/restaurant-2.jpg");
   });
 
   it("returns a matching demo restaurant when an individual lookup fails", async () => {

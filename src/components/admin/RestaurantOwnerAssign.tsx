@@ -5,7 +5,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { UserPlus } from "lucide-react";
 import { toast } from "sonner";
-import { backendEnabled, createUser } from "@/lib/backend";
 
 interface Props {
   restaurantId: number;
@@ -26,45 +25,28 @@ const RestaurantOwnerAssign = ({ restaurantId, restaurantName, currentOwnerId, o
       return;
     }
     setLoading(true);
-    try {
-      if (backendEnabled) {
-        await createUser({
-          email,
-          password,
-          full_name: fullName || restaurantName,
-          role: "restaurant_owner",
-          restaurant_id: restaurantId,
-        });
-        toast.success(`Owner assigned to ${restaurantName}`);
-      } else {
-        const { data, error } = await supabase.functions.invoke("admin-create-user", {
-          body: {
-            email,
-            password,
-            full_name: fullName || restaurantName,
-            role: "restaurant_owner",
-            restaurant_id: restaurantId,
-          },
-        });
+    const { data, error } = await supabase.functions.invoke("admin-create-user", {
+      body: {
+        email,
+        password,
+        full_name: fullName || restaurantName,
+        role: "restaurant_owner",
+        restaurant_id: restaurantId,
+      },
+    });
 
-        if (error || (data as any)?.error) {
-          toast.error((data as any)?.error || error?.message || "Failed to create owner");
-          setLoading(false);
-          return;
-        }
-
-        toast.success(`Owner assigned to ${restaurantName}`);
-      }
-
-      setEmail("");
-      setPassword("");
-      setFullName("");
-      onAssigned();
-    } catch (e: any) {
-      toast.error(e.message || "Failed to create owner");
-    } finally {
+    if (error || (data as any)?.error) {
+      toast.error((data as any)?.error || error?.message || "Failed to create owner");
       setLoading(false);
+      return;
     }
+
+    toast.success(`Owner assigned to ${restaurantName}`);
+    setEmail("");
+    setPassword("");
+    setFullName("");
+    setLoading(false);
+    onAssigned();
   };
 
   return (
@@ -72,7 +54,7 @@ const RestaurantOwnerAssign = ({ restaurantId, restaurantName, currentOwnerId, o
       <div className="flex items-center gap-2">
         <UserPlus className="h-4 w-4 text-primary" />
         <p className="text-sm font-semibold text-foreground">
-          {currentOwnerId ? "Reassign Owner" : "Assign Restaurant Owner"} {backendEnabled && <span className="text-xs font-normal text-green-600">(backend)</span>}
+          {currentOwnerId ? "Reassign Owner" : "Assign Restaurant Owner"}
         </p>
       </div>
       {currentOwnerId && (

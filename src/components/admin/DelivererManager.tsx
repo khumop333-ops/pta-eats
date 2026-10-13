@@ -6,12 +6,10 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Trash2, Plus, Truck } from "lucide-react";
 import { toast } from "sonner";
-import { backendEnabled, createUser, fetchAllUsers } from "@/lib/backend";
 
 interface DelivererProfile {
   user_id: string;
   full_name: string | null;
-  email?: string;
 }
 
 const DelivererManager = () => {
@@ -23,45 +21,30 @@ const DelivererManager = () => {
   const [adding, setAdding] = useState(false);
 
   const fetchDeliverers = async () => {
-    try {
-      if (backendEnabled) {
-        const users = await fetchAllUsers();
-        const delivs = users.filter((u: any) => u.role === 'deliverer');
-        setDeliverers(delivs.map((u: any) => ({
-          user_id: u.id,
-          full_name: u.full_name,
-          email: u.email,
-        })));
-      } else {
-        const { data: roles } = await supabase
-          .from("user_roles")
-          .select("user_id")
-          .eq("role", "deliverer");
+    const { data: roles } = await supabase
+      .from("user_roles")
+      .select("user_id")
+      .eq("role", "deliverer");
 
-        if (!roles || roles.length === 0) {
-          setDeliverers([]);
-          setLoading(false);
-          return;
-        }
-
-        const userIds = roles.map((r) => r.user_id);
-        const { data: profiles } = await supabase
-          .from("profiles")
-          .select("id, full_name")
-          .in("id", userIds);
-
-        setDeliverers(
-          roles.map((r) => ({
-            user_id: r.user_id,
-            full_name: profiles?.find((p) => p.id === r.user_id)?.full_name || null,
-          }))
-        );
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
+    if (!roles || roles.length === 0) {
+      setDeliverers([]);
       setLoading(false);
+      return;
     }
+
+    const userIds = roles.map((r) => r.user_id);
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("id, full_name")
+      .in("id", userIds);
+
+    setDeliverers(
+      roles.map((r) => ({
+        user_id: r.user_id,
+        full_name: profiles?.find((p) => p.id === r.user_id)?.full_name || null,
+      }))
+    );
+    setLoading(false);
   };
 
   useEffect(() => {
@@ -78,40 +61,25 @@ const DelivererManager = () => {
       return;
     }
     setAdding(true);
-    try {
-      if (backendEnabled) {
-        await createUser({ email, password, full_name: fullName, role: "deliverer" });
-        toast.success("Deliverer account created!");
-      } else {
-        const { data, error } = await supabase.functions.invoke("admin-create-user", {
-          body: { email, password, full_name: fullName, role: "deliverer" },
-        });
+    const { data, error } = await supabase.functions.invoke("admin-create-user", {
+      body: { email, password, full_name: fullName, role: "deliverer" },
+    });
 
-        if (error || (data as any)?.error) {
-          toast.error((data as any)?.error || error?.message || "Failed to create account");
-          setAdding(false);
-          return;
-        }
-
-        toast.success("Deliverer account created!");
-      }
-
-      setEmail("");
-      setPassword("");
-      setFullName("");
-      fetchDeliverers();
-    } catch (e: any) {
-      toast.error(e.message || "Failed to create");
-    } finally {
+    if (error || (data as any)?.error) {
+      toast.error((data as any)?.error || error?.message || "Failed to create account");
       setAdding(false);
+      return;
     }
+
+    toast.success("Deliverer account created!");
+    setEmail("");
+    setPassword("");
+    setFullName("");
+    setAdding(false);
+    fetchDeliverers();
   };
 
   const handleRemoveRole = async (userId: string) => {
-    if (backendEnabled) {
-      toast.error("Delete not implemented for backend yet - remove from db.json");
-      return;
-    }
     const { error } = await supabase
       .from("user_roles")
       .delete()
@@ -129,7 +97,7 @@ const DelivererManager = () => {
   return (
     <div className="space-y-6">
       <div className="rounded-lg border bg-card p-4 space-y-3">
-        <h3 className="font-display text-lg font-semibold text-foreground">Add New Deliverer {backendEnabled && <span className="text-xs font-normal text-green-600">(backend)</span>}</h3>
+        <h3 className="font-display text-lg font-semibold text-foreground">Add New Deliverer</h3>
         <p className="text-sm text-muted-foreground">
           Creates a confirmed account. Deliverer can immediately log in at /deliverer/login.
         </p>
@@ -172,7 +140,7 @@ const DelivererManager = () => {
                   <Truck className="h-4 w-4 text-primary" />
                 </div>
                 <div>
-                  <p className="font-medium text-foreground">{d.full_name || "Unnamed"} {d.email && <span className="text-xs text-muted-foreground">({d.email})</span>}</p>
+                  <p className="font-medium text-foreground">{d.full_name || "Unnamed"}</p>
                   <p className="text-xs text-muted-foreground font-mono">{d.user_id.slice(0, 8)}…</p>
                 </div>
               </div>

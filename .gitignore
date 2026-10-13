@@ -12,13 +12,6 @@ dist
 dist-ssr
 *.local
 .env
-.env.local
-
-# Backend
-server/data/
-server/dist/
-server/node_modules/
-server/uploads/
 
 # Editor directories and files
 .vscode/*

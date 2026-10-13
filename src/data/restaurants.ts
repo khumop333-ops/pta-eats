@@ -1,18 +1,8 @@
 import { supabase } from "@/integrations/supabase/client";
-import {
-  backendEnabled,
-  fetchRestaurantsFromBackend,
-  fetchRestaurantByIdFromBackend,
-} from "@/lib/backend";
-import type { BackendMenuItem, BackendRestaurant } from "@/lib/backend";
 import type { Database } from "@/integrations/supabase/types";
 
 type SupabaseRestaurant = Database["public"]["Tables"]["restaurants"]["Row"];
 type SupabaseMenuItem = Database["public"]["Tables"]["menu_items"]["Row"];
-type BackendRestaurantData = BackendRestaurant & {
-  deliveryTime?: string;
-  menu?: BackendMenuItem[];
-};
 
 export interface MenuItem {
   id: string;
@@ -32,9 +22,8 @@ export interface Restaurant {
   menu: MenuItem[];
 }
 
-// Keep the homepage usable even when neither the local API nor Supabase is
-// configured/reachable. These are the same demo restaurants created by the
-// backend seed script.
+// Keep the homepage usable even when Supabase is not configured/reachable.
+// These are the demo restaurants used for local development.
 const fallbackRestaurants: Restaurant[] = [
   {
     id: 1,
@@ -119,28 +108,6 @@ function resolveImageUrl(imageUrl?: string | null): string {
 }
 
 export async function fetchRestaurants(): Promise<Restaurant[]> {
-  // Try the fresh backend first when enabled.
-  if (backendEnabled) {
-    try {
-      const data = await fetchRestaurantsFromBackend();
-      if (data.length > 0) {
-        // Need menu items for each restaurant - fetch in parallel.
-        return await Promise.all(
-          data.map(async (restaurant) => {
-            try {
-              const full = await fetchRestaurantByIdFromBackend(restaurant.id);
-              return mapBackendRestaurant(full);
-            } catch {
-              return mapBackendRestaurant({ ...restaurant, menu: [] });
-            }
-          }),
-        );
-      }
-    } catch (error) {
-      console.warn("Backend fetch failed, falling back to Supabase", error);
-    }
-  }
-
   try {
     const { data: restaurants, error: restaurantError } = await supabase
       .from("restaurants")
@@ -172,15 +139,6 @@ export async function fetchRestaurants(): Promise<Restaurant[]> {
 export async function fetchRestaurantById(id: number): Promise<Restaurant | null> {
   if (!Number.isSafeInteger(id) || id < 1) return null;
 
-  if (backendEnabled) {
-    try {
-      const restaurant = await fetchRestaurantByIdFromBackend(id);
-      return mapBackendRestaurant(restaurant);
-    } catch (error) {
-      console.warn("Backend fetch by id failed, falling back to Supabase", error);
-    }
-  }
-
   try {
     const { data: restaurant, error: restaurantError } = await supabase
       .from("restaurants")
@@ -211,24 +169,6 @@ function mapRestaurant(restaurant: SupabaseRestaurant, items: SupabaseMenuItem[]
     image: resolveImageUrl(restaurant.image_url),
     deliveryTime: restaurant.delivery_time || "20-30 min",
     menu: items.map((item) => ({
-      id: item.id,
-      name: item.name,
-      description: item.description,
-      price: Number(item.price),
-      category: item.category,
-    })),
-  };
-}
-
-function mapBackendRestaurant(restaurant: BackendRestaurantData): Restaurant {
-  return {
-    id: restaurant.id,
-    name: restaurant.name,
-    cuisine: restaurant.cuisine,
-    rating: Number(restaurant.rating),
-    image: resolveImageUrl(restaurant.image_url),
-    deliveryTime: restaurant.delivery_time || restaurant.deliveryTime || "20-30 min",
-    menu: (restaurant.menu || []).map((item) => ({
       id: item.id,
       name: item.name,
       description: item.description,

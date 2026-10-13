@@ -7,7 +7,6 @@ import { Trash2, Pencil, Plus, ChevronDown, ChevronUp, Upload, X } from "lucide-
 import { toast } from "sonner";
 import MenuItemManager from "./MenuItemManager";
 import RestaurantOwnerAssign from "./RestaurantOwnerAssign";
-import { backendEnabled, fetchRestaurantsFromBackend, createRestaurant, updateRestaurant, deleteRestaurant, uploadRestaurantImage } from "@/lib/backend";
 
 interface Restaurant {
   id: number;
@@ -32,25 +31,14 @@ const RestaurantManager = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchAll = async () => {
-    try {
-      if (backendEnabled) {
-        const data = await fetchRestaurantsFromBackend();
-        setRestaurants(data as Restaurant[]);
-      } else {
-        const { data } = await supabase.from("restaurants").select("*").order("id");
-        setRestaurants((data as Restaurant[]) || []);
-      }
-    } catch (e) {
-      console.error(e);
-      toast.error("Failed to load restaurants");
-    } finally {
-      setLoading(false);
-    }
+    const { data } = await supabase.from("restaurants").select("*").order("id");
+    setRestaurants((data as Restaurant[]) || []);
+    setLoading(false);
   };
 
   useEffect(() => { fetchAll(); }, []);
 
-  const uploadImageSupabase = async (file: File): Promise<string | null> => {
+  const uploadImage = async (file: File): Promise<string | null> => {
     const ext = file.name.split(".").pop();
     const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
     const filePath = `restaurants/${fileName}`;
@@ -73,19 +61,6 @@ const RestaurantManager = () => {
     return urlData.publicUrl;
   };
 
-  const uploadImageBackend = async (file: File): Promise<string | null> => {
-    setUploading(true);
-    try {
-      const res = await uploadRestaurantImage(file);
-      setUploading(false);
-      return res.publicUrl || res.url;
-    } catch (e: any) {
-      setUploading(false);
-      toast.error(e.message || "Upload failed");
-      return null;
-    }
-  };
-
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -99,9 +74,10 @@ const RestaurantManager = () => {
       return;
     }
 
+    // Show local preview
     setPreviewUrl(URL.createObjectURL(file));
 
-    const url = backendEnabled ? await uploadImageBackend(file) : await uploadImageSupabase(file);
+    const url = await uploadImage(file);
     if (url) {
       setForm((prev) => ({ ...prev, image_url: url }));
     }
@@ -127,35 +103,21 @@ const RestaurantManager = () => {
       delivery_time: form.delivery_time || "30-40 min",
     };
 
-    try {
-      if (backendEnabled) {
-        if (editingId) {
-          await updateRestaurant(editingId, payload);
-          toast.success("Restaurant updated");
-        } else {
-          await createRestaurant(payload);
-          toast.success("Restaurant added");
-        }
-      } else {
-        if (editingId) {
-          const { error } = await supabase.from("restaurants").update(payload).eq("id", editingId);
-          if (error) { toast.error("Failed to update"); return; }
-          toast.success("Restaurant updated");
-        } else {
-          const { error } = await supabase.from("restaurants").insert(payload);
-          if (error) { toast.error("Failed to add"); return; }
-          toast.success("Restaurant added");
-        }
-      }
-
-      setForm(emptyForm);
-      setEditingId(null);
-      setPreviewUrl(null);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      fetchAll();
-    } catch (e: any) {
-      toast.error(e.message || "Failed to save");
+    if (editingId) {
+      const { error } = await supabase.from("restaurants").update(payload).eq("id", editingId);
+      if (error) { toast.error("Failed to update"); return; }
+      toast.success("Restaurant updated");
+    } else {
+      const { error } = await supabase.from("restaurants").insert(payload);
+      if (error) { toast.error("Failed to add"); return; }
+      toast.success("Restaurant added");
     }
+
+    setForm(emptyForm);
+    setEditingId(null);
+    setPreviewUrl(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    fetchAll();
   };
 
   const handleEdit = (r: Restaurant) => {
@@ -165,27 +127,20 @@ const RestaurantManager = () => {
   };
 
   const handleDelete = async (id: number) => {
-    try {
-      if (backendEnabled) {
-        await deleteRestaurant(id);
-      } else {
-        const { error } = await supabase.from("restaurants").delete().eq("id", id);
-        if (error) { toast.error("Failed to delete"); return; }
-      }
-      toast.success("Restaurant deleted");
-      fetchAll();
-    } catch (e: any) {
-      toast.error(e.message || "Failed to delete");
-    }
+    const { error } = await supabase.from("restaurants").delete().eq("id", id);
+    if (error) { toast.error("Failed to delete"); return; }
+    toast.success("Restaurant deleted");
+    fetchAll();
   };
 
   const displayImage = previewUrl || (form.image_url && form.image_url !== "/placeholder.svg" ? form.image_url : null);
 
   return (
     <div className="space-y-6">
+      {/* Form */}
       <div className="rounded-lg border bg-card p-4 space-y-3">
         <h3 className="font-display text-lg font-semibold text-foreground">
-          {editingId ? "Edit Restaurant" : "Add Restaurant"} {backendEnabled && <span className="text-xs font-normal text-green-600">(backend)</span>}
+          {editingId ? "Edit Restaurant" : "Add Restaurant"}
         </h3>
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
@@ -239,10 +194,6 @@ const RestaurantManager = () => {
                 </div>
               )}
             </div>
-            <div className="mt-2">
-              <Label className="text-xs">Or Image URL</Label>
-              <Input value={form.image_url} onChange={(e) => setForm({ ...form, image_url: e.target.value })} placeholder="/placeholder.svg or https://..." />
-            </div>
           </div>
         </div>
         <div className="flex gap-2">
@@ -257,6 +208,7 @@ const RestaurantManager = () => {
         </div>
       </div>
 
+      {/* List */}
       {loading ? (
         <p className="text-muted-foreground">Loading...</p>
       ) : restaurants.length === 0 ? (

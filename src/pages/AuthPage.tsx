@@ -9,7 +9,6 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { toast } from "sonner";
 import { useEffect } from "react";
-import { backendEnabled, login as backendLogin, signup as backendSignup } from "@/lib/backend";
 
 const AuthPage = () => {
   const { user } = useAuth();
@@ -26,26 +25,6 @@ const AuthPage = () => {
     e.preventDefault();
     setLoading(true);
 
-    if (backendEnabled) {
-      try {
-        if (isSignUp) {
-          await backendSignup(form.email, form.password, form.fullName);
-          toast.success("Account created! Welcome to Roma!");
-          navigate("/");
-        } else {
-          await backendLogin(form.email, form.password);
-          toast.success("Welcome back!");
-          navigate("/");
-        }
-      } catch (err: any) {
-        toast.error(err.message || "Authentication failed");
-      } finally {
-        setLoading(false);
-      }
-      return;
-    }
-
-    // Supabase fallback
     if (isSignUp) {
       const { error } = await supabase.auth.signUp({
         email: form.email,
@@ -89,11 +68,6 @@ const AuthPage = () => {
               {isSignUp
                 ? "Join Roma to order delicious food"
                 : "Welcome back to Roma"}
-              {backendEnabled && (
-                <span className="mt-2 block text-xs text-green-600 font-medium">
-                  ✓ Fresh backend enabled (local)
-                </span>
-              )}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -140,13 +114,6 @@ const AuthPage = () => {
                   ? "Create Account"
                   : "Sign In"}
               </Button>
-              {backendEnabled && (
-                <div className="text-xs text-muted-foreground bg-muted/50 p-2 rounded">
-                  Test accounts:<br />
-                  customer@test.com / customer123<br />
-                  admin@roma.co.za / admin123
-                </div>
-              )}
             </form>
             <div className="mt-4 text-center text-sm text-muted-foreground">
               {isSignUp ? "Already have an account?" : "Don't have an account?"}{" "}

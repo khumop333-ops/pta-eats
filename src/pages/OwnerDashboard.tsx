@@ -8,8 +8,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import MenuItemManager from "@/components/admin/MenuItemManager";
 import { LogOut, Star, Clock, Phone, MapPin } from "lucide-react";
 import { toast } from "sonner";
-import { backendEnabled, fetchOrders as fetchBackendOrders, updateOrderStatus, fetchRestaurantsFromBackend, getMe, clearToken } from "@/lib/backend";
-import { useAuth } from "@/context/AuthContext";
 
 interface RestaurantRow {
   id: number;
@@ -34,7 +32,6 @@ interface OrderRow {
   payment_status: string;
   created_at: string;
   order_items?: { id: string; item_name: string; item_price: number; quantity: number }[];
-  restaurant_id?: number;
 }
 
 const STATUSES = ["New", "Preparing", "Ready", "Picked Up", "On the Way", "Delivered"];
@@ -44,22 +41,11 @@ const statusVariant = (status: string) =>
 
 export default function OwnerDashboard() {
   const navigate = useNavigate();
-  const { signOut } = useAuth();
   const [loading, setLoading] = useState(true);
   const [restaurant, setRestaurant] = useState<RestaurantRow | null>(null);
   const [orders, setOrders] = useState<OrderRow[]>([]);
 
-  const loadOrdersBackend = async () => {
-    const data = await fetchBackendOrders();
-    // Filter to owned restaurant if we have one
-    if (restaurant) {
-      setOrders(data.filter((o: any) => o.restaurant_id === restaurant.id) as any);
-    } else {
-      setOrders(data as any);
-    }
-  };
-
-  const loadOrdersSupabase = async (restaurantId: number) => {
+  const loadOrders = async (restaurantId: number) => {
     const { data } = await supabase
       .from("orders")
       .select("*, order_items(*)")
@@ -69,103 +55,55 @@ export default function OwnerDashboard() {
   };
 
   useEffect(() => {
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+
     const init = async () => {
-      if (backendEnabled) {
-        try {
-          const me = await getMe();
-          if (me.role !== 'restaurant_owner' && me.role !== 'admin') {
-            navigate("/owner/login");
-            return;
-          }
-          // Find owned restaurant
-          const restaurants = await fetchRestaurantsFromBackend();
-          const owned = restaurants.find((r: any) => r.owner_id === me.id) || restaurants[0];
-          if (!owned) {
-            setRestaurant(null);
-            setLoading(false);
-            return;
-          }
-          setRestaurant(owned as any);
-          const allOrders = await fetchBackendOrders();
-          setOrders(allOrders.filter((o: any) => o.restaurant_id === owned.id) as any);
-          setLoading(false);
-
-          const interval = setInterval(async () => {
-            const all = await fetchBackendOrders();
-            setOrders(all.filter((o: any) => o.restaurant_id === owned.id) as any);
-          }, 5000);
-          return () => clearInterval(interval);
-        } catch {
-          navigate("/owner/login");
-        }
-      } else {
-        let channel: ReturnType<typeof supabase.channel> | null = null;
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) {
-          navigate("/owner/login");
-          return;
-        }
-
-        const { data: rest } = await supabase
-          .from("restaurants")
-          .select("*")
-          .eq("owner_id", session.user.id)
-          .maybeSingle();
-
-        if (!rest) {
-          setRestaurant(null);
-          setLoading(false);
-          return;
-        }
-
-        setRestaurant(rest as RestaurantRow);
-        await loadOrdersSupabase(rest.id);
-        setLoading(false);
-
-        channel = supabase
-          .channel(`owner-orders-${rest.id}`)
-          .on(
-            "postgres_changes",
-            { event: "*", schema: "public", table: "orders", filter: `restaurant_id=eq.${rest.id}` },
-            () => loadOrdersSupabase(rest.id)
-          )
-          .subscribe();
-
-        return () => { if (channel) supabase.removeChannel(channel); };
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        navigate("/owner/login");
+        return;
       }
+
+      const { data: rest } = await supabase
+        .from("restaurants")
+        .select("*")
+        .eq("owner_id", session.user.id)
+        .maybeSingle();
+
+      if (!rest) {
+        setRestaurant(null);
+        setLoading(false);
+        return;
+      }
+
+      setRestaurant(rest as RestaurantRow);
+      await loadOrders(rest.id);
+      setLoading(false);
+
+      channel = supabase
+        .channel(`owner-orders-${rest.id}`)
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "orders", filter: `restaurant_id=eq.${rest.id}` },
+          () => loadOrders(rest.id)
+        )
+        .subscribe();
     };
 
     init();
+
+    return () => { if (channel) supabase.removeChannel(channel); };
   }, [navigate]);
 
   const updateStatus = async (orderId: string, status: string) => {
-    try {
-      if (backendEnabled) {
-        await updateOrderStatus(orderId, status);
-        toast.success(`Order marked ${status}`);
-        // Refresh
-        const all = await fetchBackendOrders();
-        if (restaurant) {
-          setOrders(all.filter((o: any) => o.restaurant_id === restaurant.id) as any);
-        }
-      } else {
-        const { error } = await supabase.from("orders").update({ status }).eq("id", orderId);
-        if (error) { toast.error("Could not update the order"); return; }
-        toast.success(`Order marked ${status}`);
-        if (restaurant) loadOrdersSupabase(restaurant.id);
-      }
-    } catch (e: any) {
-      toast.error(e.message || "Could not update");
-    }
+    const { error } = await supabase.from("orders").update({ status }).eq("id", orderId);
+    if (error) { toast.error("Could not update the order"); return; }
+    toast.success(`Order marked ${status}`);
+    if (restaurant) loadOrders(restaurant.id);
   };
 
   const handleLogout = async () => {
-    if (backendEnabled) {
-      clearToken();
-    } else {
-      await supabase.auth.signOut();
-    }
-    await signOut();
+    await supabase.auth.signOut();
     navigate("/owner/login");
   };
 
@@ -198,7 +136,7 @@ export default function OwnerDashboard() {
         <div className="hero-overlay absolute inset-0" />
         <div className="absolute inset-x-0 bottom-0 flex flex-wrap items-end justify-between gap-3 p-4 md:p-6">
           <div>
-            <h1 className="font-display text-2xl font-bold text-primary-foreground md:text-3xl">{restaurant.name} {backendEnabled && <span className="text-xs font-normal">(backend)</span>}</h1>
+            <h1 className="font-display text-2xl font-bold text-primary-foreground md:text-3xl">{restaurant.name}</h1>
             <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-primary-foreground/80">
               <span className="flex items-center gap-1"><Star className="h-3 w-3" /> {restaurant.rating}</span>
               <span>{restaurant.cuisine}</span>
