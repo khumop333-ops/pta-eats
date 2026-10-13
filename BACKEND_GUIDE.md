@@ -47,7 +47,6 @@ npm run dev:all
 ```
 - Frontend: http://localhost:8080 (Vite)
 - Backend:  http://localhost:3001 (Express)
-- You will see a green "Backend Online" badge in bottom-right of frontend.
 
 ### Option 2: Backend only
 ```bash
@@ -120,7 +119,6 @@ The frontend now has a toggle:
 Also:
 - `vite.config.ts` proxies `/api` to backend, so even in Supabase mode you can call backend via `/api/...` from frontend code.
 - `src/lib/backend.ts` is a new client wrapper for backend.
-- `src/components/BackendStatus.tsx` shows a badge if backend is online.
 
 ## What Mirrors Supabase?
 
@@ -150,7 +148,7 @@ Also:
 You can keep both:
 - Backend runs for local dev without needing Supabase account
 - Supabase still works as before
-- Frontend badge shows which is active
+- `VITE_USE_BACKEND` selects which data source the frontend tries first.
 
 This is useful if Supabase project `jxfjbxrrbpfibdhwlhyh` is not in your account.
 

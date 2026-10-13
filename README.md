@@ -34,7 +34,7 @@ npm run dev:all
 - Backend: http://localhost:3001/health
 - API: http://localhost:3001/api/restaurants
 
-You'll see a "Backend Online" badge in the UI.
+The home page shows seeded restaurants and uses local demo data as a fallback if both data services are unavailable.
 
 ## API Quick Test
 
@@ -75,7 +75,7 @@ To fully migrate all pages to backend, say "migrate frontend to backend" and I'l
 
 ```
 src/
-  components/       # UI + BackendStatus badge
+  components/       # UI components
   pages/            # Index, RestaurantPage, Checkout, Admin, etc.
   data/restaurants.ts # now supports both Supabase and backend
   lib/backend.ts    # NEW - backend client
