@@ -6,6 +6,7 @@ import Header from "@/components/Header";
 import { Badge } from "@/components/ui/badge";
 import { Package, Clock, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { backendEnabled, fetchOrders as fetchBackendOrders } from "@/lib/backend";
 
 interface OrderItem {
   id: string;
@@ -23,7 +24,6 @@ interface Order {
   status: string;
   payment_method: string;
   payment_status: string;
-
   created_at: string;
   delivery_address: string;
   order_items: OrderItem[];
@@ -49,37 +49,70 @@ const MyOrders = () => {
   const fetchOrders = async () => {
     if (!user) return;
     setLoading(true);
-    const { data } = await supabase
-      .from("orders")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false });
-
-    const withItems: Order[] = await Promise.all(
-      (data || []).map(async (order) => {
-        const { data: items } = await supabase
-          .from("order_items")
+    try {
+      if (backendEnabled) {
+        const data = await fetchBackendOrders();
+        const mapped: Order[] = data.map((o: any) => ({
+          id: o.id,
+          restaurant_name: o.restaurant_name,
+          subtotal: o.subtotal,
+          delivery_fee: o.delivery_fee,
+          total: o.total,
+          status: o.status,
+          payment_method: o.payment_method,
+          payment_status: o.payment_status,
+          created_at: o.created_at,
+          delivery_address: o.delivery_address,
+          order_items: (o.order_items || o.items || []).map((i: any) => ({
+            id: i.id,
+            item_name: i.item_name,
+            item_price: i.item_price,
+            quantity: i.quantity,
+          })),
+        }));
+        setOrders(mapped);
+      } else {
+        const { data } = await supabase
+          .from("orders")
           .select("*")
-          .eq("order_id", order.id);
-        return { ...order, order_items: items || [] } as Order;
-      })
-    );
-    setOrders(withItems);
-    setLoading(false);
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false });
+
+        const withItems: Order[] = await Promise.all(
+          (data || []).map(async (order) => {
+            const { data: items } = await supabase
+              .from("order_items")
+              .select("*")
+              .eq("order_id", order.id);
+            return { ...order, order_items: items || [] } as Order;
+          })
+        );
+        setOrders(withItems);
+      }
+    } catch (e) {
+      console.error("Failed to fetch orders", e);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
     if (user) fetchOrders();
   }, [user]);
 
-  // Realtime updates for user's orders
+  // Realtime or polling
   useEffect(() => {
     if (!user) return;
-    const channel = supabase
-      .channel("my-orders")
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `user_id=eq.${user.id}` }, () => fetchOrders())
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    if (backendEnabled) {
+      const interval = setInterval(fetchOrders, 5000);
+      return () => clearInterval(interval);
+    } else {
+      const channel = supabase
+        .channel("my-orders")
+        .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `user_id=eq.${user.id}` }, () => fetchOrders())
+        .subscribe();
+      return () => { supabase.removeChannel(channel); };
+    }
   }, [user]);
 
   if (authLoading) return null;
@@ -88,7 +121,9 @@ const MyOrders = () => {
     <div className="min-h-screen bg-background">
       <Header />
       <main className="container mx-auto px-4 py-8 max-w-2xl">
-        <h1 className="font-display text-3xl font-bold text-foreground mb-6">My Orders</h1>
+        <h1 className="font-display text-3xl font-bold text-foreground mb-6">
+          My Orders {backendEnabled && <span className="text-sm font-normal text-green-600">(backend)</span>}
+        </h1>
 
         {loading ? (
           <p className="text-muted-foreground">Loading…</p>
@@ -165,7 +200,6 @@ const MyOrders = () => {
                       <p className="text-xs text-muted-foreground">📍 {order.delivery_address}</p>
                     </div>
                   )}
-
                 </div>
               );
             })}

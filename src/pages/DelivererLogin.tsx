@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { toast } from "sonner";
 import { Truck } from "lucide-react";
+import { backendEnabled, login as backendLogin, getMe, clearToken } from "@/lib/backend";
 
 const DelivererLogin = () => {
   const navigate = useNavigate();
@@ -17,35 +18,51 @@ const DelivererLogin = () => {
     e.preventDefault();
     setLoading(true);
 
-    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-      email: form.email,
-      password: form.password,
-    });
+    try {
+      if (backendEnabled) {
+        const res = await backendLogin(form.email, form.password);
+        if (res.user.role !== 'deliverer' && res.user.role !== 'admin') {
+          clearToken();
+          toast.error("You do not have deliverer access. Contact the admin.");
+          setLoading(false);
+          return;
+        }
+        toast.success("Welcome, driver!");
+        navigate("/deliverer");
+      } else {
+        const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+          email: form.email,
+          password: form.password,
+        });
 
-    if (authError) {
-      toast.error(authError.message);
+        if (authError) {
+          toast.error(authError.message);
+          setLoading(false);
+          return;
+        }
+
+        const { data: roleData } = await supabase
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", authData.user.id)
+          .eq("role", "deliverer")
+          .maybeSingle();
+
+        if (!roleData) {
+          await supabase.auth.signOut();
+          toast.error("You do not have deliverer access. Contact the admin.");
+          setLoading(false);
+          return;
+        }
+
+        toast.success("Welcome, driver!");
+        navigate("/deliverer");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Login failed");
+    } finally {
       setLoading(false);
-      return;
     }
-
-    // Check deliverer role
-    const { data: roleData } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", authData.user.id)
-      .eq("role", "deliverer")
-      .maybeSingle();
-
-    if (!roleData) {
-      await supabase.auth.signOut();
-      toast.error("You do not have deliverer access. Contact the admin.");
-      setLoading(false);
-      return;
-    }
-
-    toast.success("Welcome, driver!");
-    navigate("/deliverer");
-    setLoading(false);
   };
 
   return (
@@ -55,8 +72,13 @@ const DelivererLogin = () => {
           <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
             <Truck className="h-7 w-7 text-primary" />
           </div>
-          <CardTitle className="font-display text-2xl">Deliverer Login</CardTitle>
+          <CardTitle className="font-display text-2xl">Deliverer Login {backendEnabled && <span className="text-xs font-normal text-green-600">(backend)</span>}</CardTitle>
           <CardDescription>Sign in to view and manage your deliveries</CardDescription>
+          {backendEnabled && (
+            <p className="text-xs text-muted-foreground mt-2">
+              Test: deliverer@roma.co.za / deliverer123
+            </p>
+          )}
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">

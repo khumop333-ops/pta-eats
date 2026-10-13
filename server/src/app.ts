@@ -9,6 +9,7 @@ import orderRoutes from './routes/orders.js';
 import authRoutes from './routes/auth.js';
 import adminRoutes from './routes/admin.js';
 import paymentRoutes from './routes/payments.js';
+import uploadRoutes from './routes/uploads.js';
 
 const app = express();
 
@@ -19,6 +20,23 @@ app.use(cors({
 }));
 
 app.use(express.json({ limit: '1mb' }));
+
+// Serve uploaded files
+const uploadDir = path.resolve(process.cwd(), 'uploads');
+if (fs.existsSync(uploadDir)) {
+  app.use('/uploads', express.static(uploadDir));
+  app.use('/api/uploads', express.static(uploadDir));
+}
+const possibleUploadDirs = [
+  path.resolve(process.cwd(), 'uploads'),
+  path.resolve(process.cwd(), '../uploads'),
+];
+for (const dir of possibleUploadDirs) {
+  if (fs.existsSync(dir)) {
+    app.use('/uploads', express.static(dir));
+    break;
+  }
+}
 
 // Serve frontend dist if exists (for production single-server deploy)
 const possibleDistPaths = [
@@ -50,6 +68,8 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/payments', paymentRoutes);
+app.use('/api/uploads', uploadRoutes);
+app.use('/api/upload', uploadRoutes);
 
 // Also mount without /api prefix for compatibility
 app.use('/restaurants', restaurantRoutes);
