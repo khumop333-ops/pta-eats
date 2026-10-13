@@ -76,7 +76,7 @@ async function seed() {
       cuisine: 'South African',
       rating: 4.8,
       delivery_time: '25-35 min',
-      image_url: '/src/assets/restaurant-1.jpg',
+      image_url: '/restaurant-1.jpg',
       owner_id: owner1Id,
     },
     {
@@ -84,7 +84,7 @@ async function seed() {
       cuisine: 'Grill & BBQ',
       rating: 4.6,
       delivery_time: '20-30 min',
-      image_url: '/src/assets/restaurant-2.jpg',
+      image_url: '/restaurant-2.jpg',
       owner_id: null,
     },
     {
@@ -92,7 +92,7 @@ async function seed() {
       cuisine: 'Seafood',
       rating: 4.7,
       delivery_time: '30-40 min',
-      image_url: '/src/assets/restaurant-3.jpg',
+      image_url: '/restaurant-3.jpg',
       owner_id: null,
     },
     {
@@ -100,7 +100,7 @@ async function seed() {
       cuisine: 'Italian',
       rating: 4.9,
       delivery_time: '20-35 min',
-      image_url: '/src/assets/hero-food.jpg',
+      image_url: '/hero-food.jpg',
       owner_id: null,
     },
   ];
