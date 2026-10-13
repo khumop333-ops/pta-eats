@@ -8,7 +8,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Truck, MapPin, Phone, User, Package, LogOut, Navigation } from "lucide-react";
-import { backendEnabled, fetchOrders as fetchBackendOrders, updateOrderStatus, getMe } from "@/lib/backend";
 
 interface OrderItem {
   id: string;
@@ -65,127 +64,71 @@ const DelivererDashboard = () => {
       return;
     }
 
+    // Verify deliverer role
     const checkRole = async () => {
-      if (backendEnabled) {
-        try {
-          const me = await getMe();
-          if (me.role !== 'deliverer' && me.role !== 'admin') {
-            toast.error("Access denied");
-            navigate("/deliverer/login");
-            return;
-          }
-          setHasAccess(true);
-        } catch {
-          navigate("/deliverer/login");
-        }
-      } else {
-        const { data } = await supabase
-          .from("user_roles")
-          .select("role")
-          .eq("user_id", user.id)
-          .eq("role", "deliverer")
-          .maybeSingle();
+      const { data } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", user.id)
+        .eq("role", "deliverer")
+        .maybeSingle();
 
-        if (!data) {
-          toast.error("Access denied");
-          navigate("/deliverer/login");
-          return;
-        }
-        setHasAccess(true);
+      if (!data) {
+        toast.error("Access denied");
+        navigate("/deliverer/login");
+        return;
       }
+      setHasAccess(true);
     };
     checkRole();
   }, [user, authLoading, navigate]);
-
-  const fetchOrders = async () => {
-    try {
-      if (backendEnabled) {
-        const data = await fetchBackendOrders();
-        const mapped: Order[] = data.map((o: any) => ({
-          id: o.id,
-          customer_name: o.customer_name,
-          phone_number: o.phone_number,
-          delivery_address: o.delivery_address,
-          restaurant_name: o.restaurant_name,
-          status: o.status,
-          total: o.total,
-          subtotal: o.subtotal,
-          delivery_fee: o.delivery_fee,
-          special_instructions: o.special_instructions,
-          created_at: o.created_at,
-          items: (o.order_items || o.items || []).map((i: any) => ({
-            id: i.id,
-            item_name: i.item_name,
-            item_price: i.item_price,
-            quantity: i.quantity,
-          })),
-        }));
-        setOrders(mapped);
-      } else {
-        const { data: ordersData } = await supabase
-          .from("orders")
-          .select("*")
-          .order("created_at", { ascending: false });
-
-        if (!ordersData) { setLoading(false); return; }
-
-        const { data: allItems } = await supabase
-          .from("order_items")
-          .select("*");
-
-        const mapped: Order[] = ordersData.map((o) => ({
-          ...o,
-          items: (allItems || []).filter((i) => i.order_id === o.id),
-        }));
-
-        setOrders(mapped);
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   useEffect(() => {
     if (!hasAccess) return;
     fetchOrders();
 
-    if (backendEnabled) {
-      const interval = setInterval(fetchOrders, 5000);
-      return () => clearInterval(interval);
-    } else {
-      const channel = supabase
-        .channel("deliverer-orders")
-        .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => {
-          fetchOrders();
-        })
-        .subscribe();
+    // Realtime subscription
+    const channel = supabase
+      .channel("deliverer-orders")
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => {
+        fetchOrders();
+      })
+      .subscribe();
 
-      return () => { supabase.removeChannel(channel); };
-    }
+    return () => { supabase.removeChannel(channel); };
   }, [hasAccess]);
 
-  const handleUpdateStatus = async (orderId: string, newStatus: string) => {
-    try {
-      if (backendEnabled) {
-        await updateOrderStatus(orderId, newStatus);
-        toast.success(`Status updated to "${newStatus}"`);
-        fetchOrders();
-      } else {
-        const { error } = await supabase
-          .from("orders")
-          .update({ status: newStatus })
-          .eq("id", orderId);
+  const fetchOrders = async () => {
+    const { data: ordersData } = await supabase
+      .from("orders")
+      .select("*")
+      .order("created_at", { ascending: false });
 
-        if (error) {
-          toast.error("Failed to update status");
-        } else {
-          toast.success(`Status updated to "${newStatus}"`);
-        }
-      }
-    } catch (e: any) {
-      toast.error(e.message || "Failed to update");
+    if (!ordersData) { setLoading(false); return; }
+
+    const { data: allItems } = await supabase
+      .from("order_items")
+      .select("*");
+
+    const mapped: Order[] = ordersData.map((o) => ({
+      ...o,
+      items: (allItems || []).filter((i) => i.order_id === o.id),
+    }));
+
+    setOrders(mapped);
+    setLoading(false);
+  };
+
+  const updateStatus = async (orderId: string, newStatus: string) => {
+    const { error } = await supabase
+      .from("orders")
+      .update({ status: newStatus })
+      .eq("id", orderId);
+
+    if (error) {
+      toast.error("Failed to update status");
+    } else {
+      toast.success(`Status updated to "${newStatus}"`);
     }
   };
 
@@ -212,11 +155,12 @@ const DelivererDashboard = () => {
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Header */}
       <header className="sticky top-0 z-50 border-b bg-card/95 backdrop-blur">
         <div className="container mx-auto flex items-center justify-between px-4 py-3">
           <div className="flex items-center gap-2">
             <Truck className="h-6 w-6 text-primary" />
-            <h1 className="font-display text-xl font-bold text-foreground">Deliveries {backendEnabled && <span className="text-xs font-normal text-green-600">(backend)</span>}</h1>
+            <h1 className="font-display text-xl font-bold text-foreground">Deliveries</h1>
           </div>
           <Button variant="ghost" size="sm" onClick={handleLogout}>
             <LogOut className="mr-1 h-4 w-4" /> Logout
@@ -234,6 +178,7 @@ const DelivererDashboard = () => {
           </div>
         ) : (
           <>
+            {/* Active Orders */}
             {activeOrders.length > 0 && (
               <section>
                 <h2 className="font-display text-lg font-semibold text-foreground mb-3">
@@ -244,7 +189,7 @@ const DelivererDashboard = () => {
                     <OrderCard
                       key={order.id}
                       order={order}
-                      onUpdateStatus={handleUpdateStatus}
+                      onUpdateStatus={updateStatus}
                       onOpenMaps={openMaps}
                     />
                   ))}
@@ -252,6 +197,7 @@ const DelivererDashboard = () => {
               </section>
             )}
 
+            {/* Completed */}
             {completedOrders.length > 0 && (
               <section>
                 <h2 className="font-display text-lg font-semibold text-muted-foreground mb-3">
@@ -262,7 +208,7 @@ const DelivererDashboard = () => {
                     <OrderCard
                       key={order.id}
                       order={order}
-                      onUpdateStatus={handleUpdateStatus}
+                      onUpdateStatus={updateStatus}
                       onOpenMaps={openMaps}
                     />
                   ))}
@@ -303,6 +249,7 @@ function OrderCard({
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Customer info */}
         <div className="space-y-2 text-sm">
           <div className="flex items-center gap-2">
             <User className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -320,6 +267,7 @@ function OrderCard({
           </div>
         </div>
 
+        {/* Navigate button */}
         <Button
           variant="outline"
           size="sm"
@@ -330,6 +278,7 @@ function OrderCard({
           Open in Google Maps
         </Button>
 
+        {/* Order items */}
         <div className="rounded-md border bg-muted/30 p-3">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Order Items</p>
           <div className="space-y-1">
@@ -348,6 +297,7 @@ function OrderCard({
           </div>
         </div>
 
+        {/* Special instructions */}
         {order.special_instructions && (
           <div className="rounded-md border border-accent/30 bg-accent/5 p-3">
             <p className="text-xs font-semibold text-accent uppercase tracking-wider mb-1">Special Instructions</p>
@@ -355,6 +305,7 @@ function OrderCard({
           </div>
         )}
 
+        {/* Status update */}
         {!isCompleted && (
           <div className="flex items-center gap-2">
             <Select
