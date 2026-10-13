@@ -1,0 +1,101 @@
+name: Supabase migrations
+
+# The regression net for the migration baseline: every PR that touches the
+# database must be able to replay all migrations from nothing.
+#
+# This runs on GitHub Actions (not locally) because `supabase db start`
+# needs Docker, and the local sandbox has no Docker / no supabase.co access.
+#
+# When src/integrations/supabase/types.ts has drifted from the schema, CI
+# regenerates it and commits it back to the PR branch, then fails once so the
+# drift is visible. The follow-up run finds the types in sync and goes green.
+
+on:
+  pull_request:
+    paths:
+      - "supabase/**"
+      - "src/integrations/supabase/types.ts"
+      - ".github/workflows/supabase-migrations.yml"
+  push:
+    branches: [main]
+    paths:
+      - "supabase/**"
+      - "src/integrations/supabase/types.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: supabase-migrations-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  migrations:
+    name: Replay all migrations from scratch
+    runs-on: ubuntu-latest
+
+    steps:
+      # Check out the PR branch tip rather than the merge ref, so the
+      # auto-commit below pushes the branch itself and not a merge commit.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          # Pinned on purpose: `supabase gen types` output formatting changes
+          # between CLI majors, and an unpinned version makes the drift gate
+          # below churn on every CLI release rather than on real schema drift.
+          version: "2.120.0"
+
+      # db start boots Postgres and applies every migration in filename order.
+      - name: Start local Postgres
+        run: supabase db start
+
+      # db reset drops and replays them again, proving the set is idempotent
+      # and has no hidden dependency on migration side effects.
+      - name: Reset from scratch
+        run: supabase db reset
+
+      - name: Lint schema
+        # Non-blocking while the existing warnings are being cleared.
+        # Flip this to a hard gate by deleting continue-on-error once clean.
+        continue-on-error: true
+        run: supabase db lint --level warning
+
+      - name: Compare generated types with committed types
+        id: types
+        run: |
+          supabase gen types typescript --local > /tmp/generated-types.ts
+          if diff -q src/integrations/supabase/types.ts /tmp/generated-types.ts >/dev/null; then
+            echo "drift=false" >> "$GITHUB_OUTPUT"
+            echo "src/integrations/supabase/types.ts is in sync with the schema"
+          else
+            echo "drift=true" >> "$GITHUB_OUTPUT"
+            echo "### Types drift (first 100 lines)" >> "$GITHUB_STEP_SUMMARY"
+            echo '```diff' >> "$GITHUB_STEP_SUMMARY"
+            diff -u src/integrations/supabase/types.ts /tmp/generated-types.ts | head -100 >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            cp /tmp/generated-types.ts src/integrations/supabase/types.ts
+          fi
+
+      - name: Commit regenerated types back to the branch
+        # Same-repo PRs only: forks do not get write access to the branch.
+        if: >-
+          steps.types.outputs.drift == 'true' &&
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/integrations/supabase/types.ts
+          git commit -m "chore(db): regenerate Supabase types from current schema"
+          git push origin "HEAD:${GITHUB_HEAD_REF}"
+
+      - name: Fail on types drift
+        if: steps.types.outputs.drift == 'true'
+        run: |
+          echo "::error file=src/integrations/supabase/types.ts::Types were out of date. CI has regenerated them and committed the result back to this branch — pull that commit and re-run."
+          exit 1
