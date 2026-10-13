@@ -45,7 +45,10 @@ jobs:
       - name: Install Supabase CLI
         uses: supabase/setup-cli@v1
         with:
-          version: latest
+          # Pinned on purpose: `supabase gen types` output formatting changes
+          # between CLI majors, and an unpinned version makes the drift gate
+          # below churn on every CLI release rather than on real schema drift.
+          version: "2.120.0"
 
       # db start boots Postgres and applies every migration in filename order.
       - name: Start local Postgres
