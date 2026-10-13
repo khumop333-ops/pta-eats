@@ -1,0 +1,70 @@
+name: Supabase migrations
+
+# The regression net for the migration baseline: every PR that touches the
+# database must be able to replay all migrations from nothing.
+#
+# This runs on GitHub Actions (not locally) because `supabase db start`
+# needs Docker, and the local sandbox has no Docker / no supabase.co access.
+
+on:
+  pull_request:
+    paths:
+      - "supabase/**"
+      - "src/integrations/supabase/types.ts"
+      - ".github/workflows/supabase-migrations.yml"
+  push:
+    branches: [main]
+    paths:
+      - "supabase/**"
+      - "src/integrations/supabase/types.ts"
+  workflow_dispatch:
+
+concurrency:
+  group: supabase-migrations-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  migrations:
+    name: Replay all migrations from scratch
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      # db start boots Postgres and applies every migration in filename order.
+      - name: Start local Postgres
+        run: supabase db start
+
+      # db reset drops and replays them again, proving the set is idempotent
+      # and has no hidden dependency on migration side effects.
+      - name: Reset from scratch
+        run: supabase db reset
+
+      - name: Lint schema
+        # Non-blocking while the existing warnings are being cleared.
+        # Flip this to a hard gate by deleting continue-on-error once clean.
+        continue-on-error: true
+        run: supabase db lint --level warning
+
+      - name: Generated types match schema
+        run: |
+          supabase gen types typescript --local > /tmp/generated-types.ts
+          if diff -u src/integrations/supabase/types.ts /tmp/generated-types.ts; then
+            echo "src/integrations/supabase/types.ts is in sync with the schema"
+          else
+            echo "::error file=src/integrations/supabase/types.ts::Types are out of date. Download the 'generated-types' artifact from this run, or regenerate locally with: supabase db start && supabase gen types typescript --local > src/integrations/supabase/types.ts"
+            exit 1
+          fi
+
+      - name: Upload regenerated types on drift
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-types
+          path: /tmp/generated-types.ts
+          if-no-files-found: ignore
