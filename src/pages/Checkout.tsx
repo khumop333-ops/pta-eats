@@ -14,6 +14,7 @@ import { Separator } from "@/components/ui/separator";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { CreditCard, Banknote } from "lucide-react";
 import { toast } from "sonner";
+import { backendEnabled, createOrder as backendCreateOrder, createIkhokhaPayment } from "@/lib/backend";
 
 const DELIVERY_FEE = 15;
 
@@ -31,7 +32,6 @@ const Checkout = () => {
     address: "",
     instructions: "",
   });
-
 
   // Redirect to auth if not logged in
   useEffect(() => {
@@ -71,62 +71,106 @@ const Checkout = () => {
     e.preventDefault();
     setLoading(true);
 
-    // Prices and totals are calculated on the server from the live menu.
-    const { data: created, error: createError } = await supabase.functions.invoke("create-order", {
-      body: {
-        customerName: form.fullName,
-        phone: form.phone,
-        address: form.address,
-        instructions: form.instructions || null,
-        paymentMethod,
-        items: items.map((item) => ({ menuItemId: item.id, quantity: item.quantity })),
-      },
-    });
+    try {
+      let orderId: string;
 
-    const orderId = (created as { orderId?: string } | null)?.orderId;
+      if (backendEnabled) {
+        // Fresh backend flow
+        const result = await backendCreateOrder({
+          customerName: form.fullName,
+          phone: form.phone,
+          address: form.address,
+          instructions: form.instructions || null,
+          paymentMethod,
+          items: items.map((item) => ({ menuItemId: item.id, quantity: item.quantity })),
+        });
+        orderId = result.orderId;
 
-    if (createError || !orderId) {
-      const details =
-        createError instanceof FunctionsHttpError
-          ? await createError.context.text()
-          : createError?.message;
-      console.error("create-order failed:", details);
-      toast.error("Failed to place order. Please try again.");
-      setLoading(false);
-      return;
-    }
+        if (paymentMethod === "card") {
+          try {
+            const payRes = await createIkhokhaPayment(orderId, window.location.origin);
+            clearCart();
+            // Mock payment returns a URL that already has success param
+            if (payRes.mock) {
+              toast.success("Mock payment - redirecting to confirmation");
+              navigate(`/order-confirmation/${orderId}?payment=success`);
+            } else {
+              window.location.href = payRes.paylinkUrl;
+            }
+            return;
+          } catch (payErr: any) {
+            console.error("Payment failed", payErr);
+            toast.error("Could not start card payment. Order saved - you can pay cash.");
+            clearCart();
+            navigate(`/order-confirmation/${orderId}?payment=failed`);
+            return;
+          }
+        }
 
-    if (paymentMethod === "card") {
-      const { data, error } = await supabase.functions.invoke("create-ikhokha-payment", {
-        body: { orderId, returnOrigin: window.location.origin },
+        clearCart();
+        navigate(`/order-confirmation/${orderId}`);
+        return;
+      }
+
+      // Supabase fallback (original)
+      const { data: created, error: createError } = await supabase.functions.invoke("create-order", {
+        body: {
+          customerName: form.fullName,
+          phone: form.phone,
+          address: form.address,
+          instructions: form.instructions || null,
+          paymentMethod,
+          items: items.map((item) => ({ menuItemId: item.id, quantity: item.quantity })),
+        },
       });
 
-      if (error) {
+      orderId = (created as { orderId?: string } | null)?.orderId || "";
+
+      if (createError || !orderId) {
         const details =
-          error instanceof FunctionsHttpError ? await error.context.text() : error.message;
-        console.error("create-ikhokha-payment failed:", details);
-        toast.error("Could not start card payment. Your order was saved — you can pay cash on delivery.");
+          createError instanceof FunctionsHttpError
+            ? await createError.context.text()
+            : createError?.message;
+        console.error("create-order failed:", details);
+        toast.error("Failed to place order. Please try again.");
+        setLoading(false);
+        return;
+      }
+
+      if (paymentMethod === "card") {
+        const { data, error } = await supabase.functions.invoke("create-ikhokha-payment", {
+          body: { orderId, returnOrigin: window.location.origin },
+        });
+
+        if (error) {
+          const details =
+            error instanceof FunctionsHttpError ? await error.context.text() : error.message;
+          console.error("create-ikhokha-payment failed:", details);
+          toast.error("Could not start card payment. Your order was saved — you can pay cash on delivery.");
+          clearCart();
+          navigate(`/order-confirmation/${orderId}?payment=failed`);
+          return;
+        }
+
         clearCart();
-        navigate(`/order-confirmation/${orderId}?payment=failed`);
+        window.location.href = (data as { paylinkUrl: string }).paylinkUrl;
         return;
       }
 
       clearCart();
-      window.location.href = (data as { paylinkUrl: string }).paylinkUrl;
-      return;
+      navigate(`/order-confirmation/${orderId}`);
+    } catch (err: any) {
+      console.error("Checkout error", err);
+      toast.error(err.message || "Failed to place order");
+      setLoading(false);
     }
-
-    clearCart();
-    navigate(`/order-confirmation/${orderId}`);
   };
-
-
 
   return (
     <div className="min-h-screen bg-background">
       <Header />
       <main className="container mx-auto px-4 py-8">
-        <h1 className="font-display text-3xl font-bold text-foreground mb-8">Checkout</h1>
+        <h1 className="font-display text-3xl font-bold text-foreground mb-8">Checkout {backendEnabled && <span className="text-sm font-normal text-green-600">(backend)</span>}</h1>
 
         <div className="grid gap-8 lg:grid-cols-2">
           {/* Delivery Form */}
@@ -228,7 +272,7 @@ const Checkout = () => {
                         Pay by Card
                       </div>
                       <p className="mt-0.5 text-xs text-muted-foreground">
-                        Secure card payment via iKhokha
+                        {backendEnabled ? "Mock card payment (dev)" : "Secure card payment via iKhokha"}
                       </p>
                     </div>
                   </label>
@@ -275,7 +319,6 @@ const Checkout = () => {
                     ? `Pay R ${total.toFixed(2)}`
                     : "Place Order"}
               </Button>
-
             </CardContent>
           </Card>
         </div>

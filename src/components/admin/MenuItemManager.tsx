@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Trash2, Pencil, Plus } from "lucide-react";
 import { toast } from "sonner";
+import { backendEnabled, fetchMenuItems, createMenuItem, updateMenuItem, deleteMenuItem } from "@/lib/backend";
 
 interface MenuItemRow {
   id: string;
@@ -22,12 +23,21 @@ const MenuItemManager = ({ restaurantId }: { restaurantId: number }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const fetchItems = async () => {
-    const { data } = await supabase
-      .from("menu_items")
-      .select("*")
-      .eq("restaurant_id", restaurantId)
-      .order("category");
-    setItems((data as MenuItemRow[]) || []);
+    try {
+      if (backendEnabled) {
+        const data = await fetchMenuItems(restaurantId);
+        setItems(data as MenuItemRow[]);
+      } else {
+        const { data } = await supabase
+          .from("menu_items")
+          .select("*")
+          .eq("restaurant_id", restaurantId)
+          .order("category");
+        setItems((data as MenuItemRow[]) || []);
+      }
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   useEffect(() => { fetchItems(); }, [restaurantId]);
@@ -46,19 +56,33 @@ const MenuItemManager = ({ restaurantId }: { restaurantId: number }) => {
       category: form.category || "Mains",
     };
 
-    if (editingId) {
-      const { error } = await supabase.from("menu_items").update(payload).eq("id", editingId);
-      if (error) { toast.error("Failed to update"); return; }
-      toast.success("Item updated");
-    } else {
-      const { error } = await supabase.from("menu_items").insert(payload);
-      if (error) { toast.error("Failed to add"); return; }
-      toast.success("Item added");
-    }
+    try {
+      if (backendEnabled) {
+        if (editingId) {
+          await updateMenuItem(editingId, payload);
+          toast.success("Item updated");
+        } else {
+          await createMenuItem(payload);
+          toast.success("Item added");
+        }
+      } else {
+        if (editingId) {
+          const { error } = await supabase.from("menu_items").update(payload).eq("id", editingId);
+          if (error) { toast.error("Failed to update"); return; }
+          toast.success("Item updated");
+        } else {
+          const { error } = await supabase.from("menu_items").insert(payload);
+          if (error) { toast.error("Failed to add"); return; }
+          toast.success("Item added");
+        }
+      }
 
-    setForm(emptyForm);
-    setEditingId(null);
-    fetchItems();
+      setForm(emptyForm);
+      setEditingId(null);
+      fetchItems();
+    } catch (e: any) {
+      toast.error(e.message || "Failed to save");
+    }
   };
 
   const handleEdit = (item: MenuItemRow) => {
@@ -67,19 +91,26 @@ const MenuItemManager = ({ restaurantId }: { restaurantId: number }) => {
   };
 
   const handleDelete = async (id: string) => {
-    const { error } = await supabase.from("menu_items").delete().eq("id", id);
-    if (error) { toast.error("Failed to delete"); return; }
-    toast.success("Item deleted");
-    fetchItems();
+    try {
+      if (backendEnabled) {
+        await deleteMenuItem(id);
+      } else {
+        const { error } = await supabase.from("menu_items").delete().eq("id", id);
+        if (error) { toast.error("Failed to delete"); return; }
+      }
+      toast.success("Item deleted");
+      fetchItems();
+    } catch (e: any) {
+      toast.error(e.message || "Failed to delete");
+    }
   };
 
   const categories = [...new Set(items.map((i) => i.category))];
 
   return (
     <div className="space-y-4">
-      {/* Add/Edit form */}
       <div className="rounded border bg-muted/30 p-3 space-y-2">
-        <p className="text-sm font-semibold text-foreground">{editingId ? "Edit Item" : "Add Item"}</p>
+        <p className="text-sm font-semibold text-foreground">{editingId ? "Edit Item" : "Add Item"} {backendEnabled && <span className="text-xs font-normal text-green-600">(backend)</span>}</p>
         <div className="grid gap-2 sm:grid-cols-2">
           <div>
             <Label className="text-xs">Name</Label>
@@ -110,7 +141,6 @@ const MenuItemManager = ({ restaurantId }: { restaurantId: number }) => {
         </div>
       </div>
 
-      {/* Items list */}
       {items.length === 0 ? (
         <p className="text-sm text-muted-foreground">No menu items yet.</p>
       ) : (

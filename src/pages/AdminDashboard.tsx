@@ -17,6 +17,7 @@ import { UtensilsCrossed, LogOut, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import RestaurantManager from "@/components/admin/RestaurantManager";
 import DelivererManager from "@/components/admin/DelivererManager";
+import { backendEnabled, fetchOrders as fetchBackendOrders, updateOrderStatus, markOrderPaid as backendMarkPaid } from "@/lib/backend";
 
 interface OrderItem {
   id: string;
@@ -42,7 +43,6 @@ interface Order {
   order_items: OrderItem[];
 }
 
-
 const statusColors: Record<string, string> = {
   New: "bg-accent text-accent-foreground",
   Accepted: "bg-secondary text-secondary-foreground",
@@ -63,79 +63,139 @@ const AdminDashboard = () => {
 
   const fetchOrders = async () => {
     setLoading(true);
-    const { data: ordersData, error } = await supabase
-      .from("orders")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      toast.error("Failed to fetch orders");
-      setLoading(false);
-      return;
-    }
-
-    const ordersWithItems: Order[] = await Promise.all(
-      (ordersData || []).map(async (order) => {
-        const { data: items } = await supabase
-          .from("order_items")
+    try {
+      if (backendEnabled) {
+        const data = await fetchBackendOrders();
+        const mapped: Order[] = data.map((o: any) => ({
+          id: o.id,
+          customer_name: o.customer_name,
+          phone_number: o.phone_number,
+          delivery_address: o.delivery_address,
+          special_instructions: o.special_instructions,
+          restaurant_name: o.restaurant_name,
+          subtotal: o.subtotal,
+          delivery_fee: o.delivery_fee,
+          total: o.total,
+          status: o.status,
+          payment_method: o.payment_method,
+          payment_status: o.payment_status,
+          created_at: o.created_at,
+          order_items: (o.order_items || o.items || []).map((i: any) => ({
+            id: i.id,
+            item_name: i.item_name,
+            item_price: i.item_price,
+            quantity: i.quantity,
+          })),
+        }));
+        setOrders(mapped);
+      } else {
+        const { data: ordersData, error } = await supabase
+          .from("orders")
           .select("*")
-          .eq("order_id", order.id);
-        return { ...order, order_items: items || [] } as Order;
-      })
-    );
+          .order("created_at", { ascending: false });
 
-    setOrders(ordersWithItems);
-    setLoading(false);
+        if (error) {
+          toast.error("Failed to fetch orders");
+          setLoading(false);
+          return;
+        }
+
+        const ordersWithItems: Order[] = await Promise.all(
+          (ordersData || []).map(async (order) => {
+            const { data: items } = await supabase
+              .from("order_items")
+              .select("*")
+              .eq("order_id", order.id);
+            return { ...order, order_items: items || [] } as Order;
+          })
+        );
+
+        setOrders(ordersWithItems);
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to fetch orders");
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
     if (!isAuthenticated) return;
     fetchOrders();
 
-    const channel = supabase
-      .channel("admin-orders")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "orders" },
-        () => { fetchOrders(); }
-      )
-      .subscribe();
+    if (backendEnabled) {
+      const interval = setInterval(fetchOrders, 5000);
+      return () => clearInterval(interval);
+    } else {
+      const channel = supabase
+        .channel("admin-orders")
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "orders" },
+          () => { fetchOrders(); }
+        )
+        .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
+      return () => { supabase.removeChannel(channel); };
+    }
   }, [isAuthenticated]);
 
   const updateStatus = async (orderId: string, newStatus: string) => {
-    const { error } = await supabase
-      .from("orders")
-      .update({ status: newStatus })
-      .eq("id", orderId);
+    try {
+      if (backendEnabled) {
+        await updateOrderStatus(orderId, newStatus);
+        toast.success(`Order marked as "${newStatus}"`);
+        setOrders((prev) =>
+          prev.map((o) => (o.id === orderId ? { ...o, status: newStatus } : o))
+        );
+      } else {
+        const { error } = await supabase
+          .from("orders")
+          .update({ status: newStatus })
+          .eq("id", orderId);
 
-    if (error) {
-      toast.error("Failed to update status");
-    } else {
-      toast.success(`Order marked as "${newStatus}"`);
-      setOrders((prev) =>
-        prev.map((o) => (o.id === orderId ? { ...o, status: newStatus } : o))
-      );
+        if (error) {
+          toast.error("Failed to update status");
+        } else {
+          toast.success(`Order marked as "${newStatus}"`);
+          setOrders((prev) =>
+            prev.map((o) => (o.id === orderId ? { ...o, status: newStatus } : o))
+          );
+        }
+      }
+    } catch (e: any) {
+      toast.error(e.message || "Failed to update");
     }
   };
 
   const markPaid = async (orderId: string) => {
-    const { error } = await supabase
-      .from("orders")
-      .update({ payment_status: "paid", paid_at: new Date().toISOString() })
-      .eq("id", orderId);
+    try {
+      if (backendEnabled) {
+        await backendMarkPaid(orderId);
+        toast.success("Payment recorded");
+        setOrders((prev) =>
+          prev.map((o) => (o.id === orderId ? { ...o, payment_status: "paid" } : o))
+        );
+      } else {
+        const { error } = await supabase
+          .from("orders")
+          .update({ payment_status: "paid", paid_at: new Date().toISOString() })
+          .eq("id", orderId);
 
-    if (error) {
-      toast.error("Failed to mark as paid");
-    } else {
-      toast.success("Payment recorded");
-      setOrders((prev) =>
-        prev.map((o) => (o.id === orderId ? { ...o, payment_status: "paid" } : o))
-      );
+        if (error) {
+          toast.error("Failed to mark as paid");
+        } else {
+          toast.success("Payment recorded");
+          setOrders((prev) =>
+            prev.map((o) => (o.id === orderId ? { ...o, payment_status: "paid" } : o))
+          );
+        }
+      }
+    } catch (e: any) {
+      toast.error(e.message || "Failed");
     }
   };
-
 
   if (authLoading) {
     return (
@@ -154,7 +214,7 @@ const AdminDashboard = () => {
           <div className="flex items-center gap-2">
             <UtensilsCrossed className="h-7 w-7 text-primary" />
             <span className="font-display text-xl font-bold text-foreground">
-              Dashboard
+              Dashboard {backendEnabled && <span className="text-xs font-normal text-green-600">(backend)</span>}
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -254,7 +314,6 @@ const AdminDashboard = () => {
                           {order.payment_status !== "paid" && (
                             <Button size="sm" variant="ghost" onClick={() => markPaid(order.id)}>Mark Paid</Button>
                           )}
-
                         </TableCell>
                       </TableRow>
                     ))}

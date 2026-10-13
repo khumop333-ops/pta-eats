@@ -4,6 +4,7 @@ import Header from "@/components/Header";
 import { Button } from "@/components/ui/button";
 import { CheckCircle, Banknote, XCircle, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { backendEnabled, fetchOrderById } from "@/lib/backend";
 
 const OrderConfirmation = () => {
   const { orderId } = useParams();
@@ -16,18 +17,29 @@ const OrderConfirmation = () => {
     if (!orderId) return;
     let active = true;
     const load = async () => {
-      const { data } = await supabase
-        .from("orders")
-        .select("payment_method, payment_status")
-        .eq("id", orderId)
-        .maybeSingle();
-      if (active) {
-        setOrder(data ?? null);
-        setLoading(false);
+      try {
+        if (backendEnabled) {
+          const data = await fetchOrderById(orderId);
+          if (active) {
+            setOrder({ payment_method: data.payment_method, payment_status: data.payment_status });
+            setLoading(false);
+          }
+        } else {
+          const { data } = await supabase
+            .from("orders")
+            .select("payment_method, payment_status")
+            .eq("id", orderId)
+            .maybeSingle();
+          if (active) {
+            setOrder(data ?? null);
+            setLoading(false);
+          }
+        }
+      } catch {
+        if (active) setLoading(false);
       }
     };
     load();
-    // Card payments confirm via webhook, so poll briefly after returning from iKhokha
     const interval = paymentParam === "success" ? setInterval(load, 3000) : undefined;
     const stop = setTimeout(() => interval && clearInterval(interval), 30000);
     return () => {
@@ -92,6 +104,7 @@ const OrderConfirmation = () => {
 
         <p className="mt-3 text-sm text-muted-foreground">
           Order ID: <span className="font-mono font-medium text-foreground">{orderId?.slice(0, 8)}…</span>
+          {backendEnabled && <span className="ml-2 text-xs text-green-600">(backend)</span>}
         </p>
 
         <div className="mt-8 flex flex-wrap justify-center gap-3">
