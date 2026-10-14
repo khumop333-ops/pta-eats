@@ -147,6 +147,13 @@ Point a Vercel preview deploy at the staging project via a preview-scoped env va
 
 **Rollback:** revert the docs branch. CI file removal has no effect on prod.
 
+### 0.7 Post-verification findings (2026-10-13)
+
+- All 14 §9 queries reconciled. Zero drift. No reconstruction migrations required.
+- `public.orders` is empty (Query 3 returned 0 rows). The database is pre-launch. Downstream effects: Phase 3.4 backfill is a no-op; Phase 3.3's 24h observation wait is unnecessary; Phase 3.5's `USING` cast is zero-risk; Phase 4's money conversion is a one-shot migration, not expand/contract; Phase 1.8 test matrix requires seeded order fixtures.
+- `orders.restaurant_id` is `integer NOT NULL` in prod. Phase 2.3 FK must use `on delete restrict`, not `set null`.
+- Live `orders` deliverer UPDATE policy name is exactly `Deliverers can update orders`, condition `has_role(auth.uid(), 'deliverer'::app_role)`. Phase 1.3's `drop policy` must use this exact name.
+
 ---
 
 ## Phase 1 — Deliverer scoping (P0)
@@ -374,7 +381,7 @@ from information_schema.columns
 where table_name = 'orders' and column_name = 'restaurant_id';
 ```
 
-**If `restaurant_id` is NOT NULL:** the FK must be `on delete restrict` (or the column made nullable first, which is a bigger change). If restrict is chosen, deleting a restaurant with historical orders will fail — the operator must soft-delete instead (add `restaurants.deleted_at`, filter it out of dashboards). Decide this before proceeding.
+**`restaurant_id` is `integer NOT NULL` in prod (confirmed Phase 0.2).** The FK in §2.3 must use `on delete restrict`. Because restrict blocks deleting a restaurant that has historical orders, Phase 2 also adds `restaurants.deleted_at timestamptz` so restaurants can be soft-deleted. All dashboard queries that list restaurants must add `where deleted_at is null`.
 
 ### 2.2 Indexes
 
@@ -397,6 +404,22 @@ create index if not exists menu_items_restaurant_idx
 
 **Do not** use `CREATE INDEX CONCURRENTLY` — Supabase migrations run in a transaction, and `CONCURRENTLY` cannot run inside one. For the row counts Roma currently has, a plain `CREATE INDEX` takes milliseconds.
 
+### 2.2b Soft-delete column on restaurants
+
+```sql
+-- Phase 2.2b — soft-delete column, required because 2.3 uses on delete restrict.
+-- Rollback: alter table public.restaurants drop column deleted_at;
+
+alter table public.restaurants
+  add column if not exists deleted_at timestamptz;
+
+create index if not exists restaurants_active_idx
+  on public.restaurants (id)
+  where deleted_at is null;
+```
+
+Frontend must add `where deleted_at is null` to every query that lists restaurants. This is part of the Phase 2 frontend checklist even though Phase 2 was nominally backend-only.
+
 ### 2.3 Foreign key, added NOT VALID then validated
 
 ```sql
@@ -407,7 +430,7 @@ alter table public.orders
   add constraint orders_restaurant_fk
   foreign key (restaurant_id)
   references public.restaurants(id)
-  on delete set null   -- or restrict, per 2.1 decision
+  on delete restrict   -- 2.1 confirmed NOT NULL
   not valid;
 
 alter table public.orders
@@ -531,6 +554,8 @@ export function isCanonical(s: string): s is CanonicalStatus {
 Deploy. **Wait 24 hours** with green dashboards before proceeding to 3.4.
 
 ### 3.4 Migration — `order_status_backfill.sql`
+
+**Pre-launch no-op.** `public.orders` is empty as of 2026-10-13 (see §0.7). This migration exists for the day orders begin writing, but currently affects 0 rows. Apply the enum swap in §3.5 directly.
 
 ```sql
 -- Phase 3.4 — backfill legacy statuses to canonical.
