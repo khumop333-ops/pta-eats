@@ -17,5 +17,25 @@ jobs:
       - run: supabase start
       - run: supabase db reset
       - run: supabase db lint
+      # Temporary — verifies Phase 1 policy/trigger state. Remove or promote to RLS test suite after Phase 1 lands.
+      - name: Assert Phase 1 policies
+        run: |
+          set -e
+          PSQL="psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -t -A -c"
+
+          # Old broad deliverer policies must be gone
+          test -z "$($PSQL "select policyname from pg_policies where schemaname='public' and policyname in ('Deliverers can update orders','Deliverers can view orders','Deliverers can view order items')")"
+
+          # New scoped policies must exist
+          test -n "$($PSQL "select 1 from pg_policies where schemaname='public' and tablename='orders' and policyname='Deliverers can update assigned orders'")"
+          test -n "$($PSQL "select 1 from pg_policies where schemaname='public' and tablename='orders' and policyname='Deliverers can view assigned orders'")"
+          test -n "$($PSQL "select 1 from pg_policies where schemaname='public' and tablename='order_items' and policyname='Deliverers can view assigned order items'")"
+
+          # Scoped policies must filter by deliverer_id
+          test -n "$($PSQL "select 1 from pg_policies where schemaname='public' and tablename='orders' and policyname='Deliverers can update assigned orders' and qual like '%deliverer_id%'")"
+          test -n "$($PSQL "select 1 from pg_policies where schemaname='public' and tablename='orders' and policyname='Deliverers can view assigned orders' and qual like '%deliverer_id%'")"
+
+          # Trigger must exist on orders
+          test -n "$($PSQL "select 1 from pg_trigger t join pg_class c on c.oid=t.tgrelid join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname='orders' and t.tgname='orders_protect_money' and not t.tgisinternal")"
       - if: always()
         run: supabase stop --no-backup
