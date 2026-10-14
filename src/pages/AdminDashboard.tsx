@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { FunctionsHttpError } from "@supabase/supabase-js";
 import { useAdminAuth } from "@/context/AdminAuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
@@ -40,8 +42,14 @@ interface Order {
   payment_status: string;
   created_at: string;
   order_items: OrderItem[];
+  deliverer_id: string | null;
+  assignee_name: string | null;
 }
 
+interface Deliverer {
+  id: string;
+  name: string;
+}
 
 const statusColors: Record<string, string> = {
   New: "bg-accent text-accent-foreground",
@@ -54,6 +62,10 @@ const AdminDashboard = () => {
   const navigate = useNavigate();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [assignmentOrder, setAssignmentOrder] = useState<Order | null>(null);
+  const [deliverers, setDeliverers] = useState<Deliverer[]>([]);
+  const [loadingDeliverers, setLoadingDeliverers] = useState(false);
+  const [assigning, setAssigning] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
@@ -74,13 +86,30 @@ const AdminDashboard = () => {
       return;
     }
 
+    const assigneeIds = [...new Set((ordersData || []).flatMap((o) => o.deliverer_id ? [o.deliverer_id] : []))];
+    const assigneeNames = new Map<string, string>();
+    if (assigneeIds.length > 0) {
+      const { data: profiles, error: profilesError } = await supabase
+        .from("profiles")
+        .select("id, full_name")
+        .in("id", assigneeIds);
+      if (profilesError) toast.error(profilesError.message);
+      for (const profile of profiles || []) {
+        if (profile.full_name) assigneeNames.set(profile.id, profile.full_name);
+      }
+    }
+
     const ordersWithItems: Order[] = await Promise.all(
       (ordersData || []).map(async (order) => {
         const { data: items } = await supabase
           .from("order_items")
           .select("*")
           .eq("order_id", order.id);
-        return { ...order, order_items: items || [] } as Order;
+        return {
+          ...order,
+          order_items: items || [],
+          assignee_name: assigneeNames.get(order.deliverer_id) || null,
+        };
       })
     );
 
@@ -103,6 +132,62 @@ const AdminDashboard = () => {
 
     return () => { supabase.removeChannel(channel); };
   }, [isAuthenticated]);
+
+  const openAssignment = async (order: Order) => {
+    if (!isAuthenticated || assigning || loadingDeliverers) return;
+    setAssignmentOrder(order);
+    setDeliverers([]);
+    setLoadingDeliverers(true);
+    try {
+      const { data: roles, error: rolesError } = await supabase
+        .from("user_roles")
+        .select("user_id")
+        .eq("role", "deliverer");
+      if (rolesError) throw rolesError;
+      const ids = [...new Set((roles || []).map((role) => role.user_id))];
+      if (ids.length === 0) return;
+
+      const { data: profiles, error: profilesError } = await supabase
+        .from("profiles")
+        .select("id, full_name")
+        .in("id", ids);
+      if (profilesError) throw profilesError;
+      const names = new Map((profiles || []).map((profile) => [profile.id, profile.full_name]));
+      setDeliverers(ids.map((id) => ({ id, name: names.get(id) || `Unnamed (${id})` })));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String((error as { message?: string })?.message || error));
+      setAssignmentOrder(null);
+    } finally {
+      setLoadingDeliverers(false);
+    }
+  };
+
+  const assignDeliverer = async (deliverer: Deliverer) => {
+    if (!isAuthenticated || !assignmentOrder || assigning) return;
+    setAssigning(true);
+    try {
+      const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string }>("assign-deliverer", {
+        body: { order_id: assignmentOrder.id, deliverer_id: deliverer.id },
+      });
+      if (error) {
+        if (error instanceof FunctionsHttpError) {
+          const body = await error.context.json();
+          throw new Error(typeof body?.error === "string" ? body.error : error.message);
+        }
+        throw error;
+      }
+      if (data?.error) throw new Error(data.error);
+      if (data?.ok !== true) throw new Error("Failed to assign deliverer");
+
+      toast.success(`Assigned to ${deliverer.name}`);
+      setAssignmentOrder(null);
+      await fetchOrders();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to assign deliverer");
+    } finally {
+      setAssigning(false);
+    }
+  };
 
   const updateStatus = async (orderId: string, newStatus: string) => {
     const { error } = await supabase
@@ -199,6 +284,7 @@ const AdminDashboard = () => {
                       <TableHead>Items</TableHead>
                       <TableHead>Total</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead>Deliverer</TableHead>
                       <TableHead>Time</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -241,10 +327,16 @@ const AdminDashboard = () => {
                         <TableCell>
                           <Badge className={statusColors[order.status] || ""} variant="secondary">{order.status}</Badge>
                         </TableCell>
+                        <TableCell>
+                          {order.deliverer_id ? order.assignee_name || order.deliverer_id : "Unassigned"}
+                        </TableCell>
                         <TableCell className="text-xs text-muted-foreground">
                           {new Date(order.created_at).toLocaleString("en-ZA")}
                         </TableCell>
                         <TableCell className="text-right space-x-2">
+                          <Button size="sm" variant="outline" disabled={assigning || loadingDeliverers} onClick={() => openAssignment(order)}>
+                            Assign deliverer
+                          </Button>
                           {order.status === "New" && (
                             <Button size="sm" variant="outline" onClick={() => updateStatus(order.id, "Accepted")}>Accept</Button>
                           )}
@@ -275,6 +367,32 @@ const AdminDashboard = () => {
           </TabsContent>
         </Tabs>
       </main>
+      <Dialog open={assignmentOrder !== null} onOpenChange={(open) => { if (!open && !assigning) setAssignmentOrder(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Assign deliverer</DialogTitle>
+            <DialogDescription>
+              Order {assignmentOrder?.id.slice(0, 8)} — Current assignee: {assignmentOrder?.deliverer_id
+                ? assignmentOrder.assignee_name || assignmentOrder.deliverer_id
+                : "Unassigned"}. Select a deliverer to assign or reassign this order.
+            </DialogDescription>
+          </DialogHeader>
+          {loadingDeliverers ? (
+            <p className="text-muted-foreground">Loading deliverers...</p>
+          ) : deliverers.length === 0 ? (
+            <p className="text-muted-foreground">No deliverers available.</p>
+          ) : (
+            <div className="max-h-72 space-y-2 overflow-y-auto">
+              {deliverers.map((deliverer) => (
+                <Button key={deliverer.id} variant="outline" className="w-full justify-start" disabled={assigning} onClick={() => assignDeliverer(deliverer)}>
+                  {deliverer.name}{deliverer.id === assignmentOrder?.deliverer_id ? " (current)" : ""}
+                </Button>
+              ))}
+            </div>
+          )}
+          {assigning && <p role="status" className="text-muted-foreground">Assigning deliverer...</p>}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
