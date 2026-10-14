@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
@@ -83,32 +83,27 @@ const DelivererDashboard = () => {
     checkRole();
   }, [user, authLoading, navigate]);
 
-  useEffect(() => {
-    if (!hasAccess) return;
-    fetchOrders();
-
-    // Realtime subscription
-    const channel = supabase
-      .channel("deliverer-orders")
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => {
-        fetchOrders();
-      })
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
-  }, [hasAccess]);
-
-  const fetchOrders = async () => {
-    const { data: ordersData } = await supabase
+  const fetchOrders = useCallback(async () => {
+    if (!user) { setOrders([]); setLoading(false); return; }
+    const { data: ordersData, error: ordersError } = await supabase
       .from("orders")
       .select("*")
+      .eq("deliverer_id", user.id)
       .order("created_at", { ascending: false });
 
-    if (!ordersData) { setLoading(false); return; }
+    if (ordersError) {
+      toast.error("Failed to fetch orders");
+      setOrders([]);
+      setLoading(false);
+      return;
+    }
+    if (!ordersData?.length) { setOrders([]); setLoading(false); return; }
 
-    const { data: allItems } = await supabase
+    const { data: allItems, error: itemsError } = await supabase
       .from("order_items")
-      .select("*");
+      .select("*")
+      .in("order_id", ordersData.map((order) => order.id));
+    if (itemsError) toast.error("Failed to fetch order items");
 
     const mapped: Order[] = ordersData.map((o) => ({
       ...o,
@@ -117,16 +112,37 @@ const DelivererDashboard = () => {
 
     setOrders(mapped);
     setLoading(false);
-  };
+  }, [user]);
+
+  useEffect(() => {
+    if (!hasAccess || !user) { setOrders([]); return; }
+    fetchOrders();
+
+    // Realtime subscription
+    const channel = supabase
+      .channel("deliverer-orders")
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: "deliverer_id=eq." + user.id }, () => {
+        fetchOrders();
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [hasAccess, user, fetchOrders]);
 
   const updateStatus = async (orderId: string, newStatus: string) => {
-    const { error } = await supabase
+    if (!user) { toast.error("Access denied"); return; }
+    const { data, error } = await supabase
       .from("orders")
       .update({ status: newStatus })
-      .eq("id", orderId);
+      .eq("id", orderId)
+      .eq("deliverer_id", user.id)
+      .select("id");
 
     if (error) {
       toast.error("Failed to update status");
+    } else if (!data || data.length === 0) {
+      toast.error("Order not found or no longer assigned to you");
+      await fetchOrders();
     } else {
       toast.success(`Status updated to "${newStatus}"`);
     }
