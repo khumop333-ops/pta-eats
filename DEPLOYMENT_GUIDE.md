@@ -186,6 +186,32 @@ The iKhokha secret key should **NOT** be in Vite env vars — it must live as a 
 
 ---
 
+## Step 6 – Automatic Edge Function deploys (GitHub Actions)
+
+`.github/workflows/deploy-functions.yml` deploys every function in `supabase/functions/` whenever
+anything under `supabase/functions/**` changes on `main`, and can also be run by hand via
+**Actions → Deploy Supabase Functions → Run workflow**.
+
+Add two repository secrets (**Settings → Secrets and variables → Actions → New repository secret**):
+
+| Secret | Where to find the value |
+|---|---|
+| `SUPABASE_ACCESS_TOKEN` | Supabase dashboard → Account → Access tokens (starts with `sbp_`) |
+| `SUPABASE_PROJECT_ID` | Supabase dashboard → Project Settings → General → Reference ID |
+
+> ⚠️ **Never write these values into a file.** This repository is **public** — anything committed to a
+> workflow file is readable by the whole internet and gets scraped within minutes. A Supabase access
+> token grants full control over every project in the account, not just this one.
+>
+> If a token is ever pasted into a file or a chat, revoke it straight away at
+> <https://supabase.com/dashboard/account/tokens>, issue a new one, and update the secret.
+
+Also double-check that `SUPABASE_PROJECT_ID` matches the project your frontend points at: the app
+currently uses `https://jxfjbxrrbpfibdhwlhyh.supabase.co` (`.env` → `VITE_SUPABASE_URL`). Deploying
+functions to a different project ref means the site keeps calling the old functions.
+
+---
+
 ## One-click deploy references
 
 - **Vercel:** Push to GitHub, then visit https://vercel.com/new
