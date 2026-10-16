@@ -8,6 +8,8 @@ import { AuthProvider } from "@/context/AuthContext";
 import { AdminAuthProvider } from "@/context/AdminAuthContext";
 import Index from "./pages/Index";
 import RestaurantPage from "./pages/RestaurantPage";
+import PublicRestaurantPage from "./pages/PublicRestaurantPage";
+import RestaurantDirectoryPage from "./pages/RestaurantDirectoryPage";
 import Checkout from "./pages/Checkout";
 import OrderConfirmation from "./pages/OrderConfirmation";
 import AuthPage from "./pages/AuthPage";
@@ -33,6 +35,8 @@ const App = () => (
             <BrowserRouter>
               <Routes>
                 <Route path="/" element={<Index />} />
+                <Route path="/r" element={<RestaurantDirectoryPage />} />
+                <Route path="/r/:slug" element={<PublicRestaurantPage />} />
                 <Route path="/restaurant/:id" element={<RestaurantPage />} />
                 <Route path="/checkout" element={<Checkout />} />
                 <Route path="/order-confirmation/:orderId" element={<OrderConfirmation />} />
