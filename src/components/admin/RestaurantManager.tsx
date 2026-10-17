@@ -11,14 +11,39 @@ import RestaurantOwnerAssign from "./RestaurantOwnerAssign";
 interface Restaurant {
   id: number;
   name: string;
+  slug: string;
   cuisine: string;
+  description: string | null;
+  address_line: string | null;
+  suburb: string | null;
+  city: string | null;
+  province: string | null;
+  whatsapp_number: string | null;
   rating: number;
   image_url: string;
   delivery_time: string;
   owner_id: string | null;
 }
 
-const emptyForm = { name: "", cuisine: "", rating: "4.0", image_url: "", delivery_time: "30-40 min" };
+const emptyForm = {
+  name: "",
+  slug: "",
+  cuisine: "",
+  description: "",
+  address_line: "",
+  suburb: "",
+  city: "",
+  province: "",
+  whatsapp_number: "",
+  rating: "4.0",
+  image_url: "",
+  delivery_time: "30-40 min",
+};
+
+const slugFromName = (name: string) => {
+  const slug = name.toLowerCase().replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return slug || "restaurant";
+};
 
 const RestaurantManager = () => {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
@@ -97,7 +122,14 @@ const RestaurantManager = () => {
 
     const payload = {
       name: form.name,
+      slug: form.slug.trim() || slugFromName(form.name),
       cuisine: form.cuisine,
+      description: form.description.trim() || null,
+      address_line: form.address_line.trim() || null,
+      suburb: form.suburb.trim() || null,
+      city: form.city.trim() || null,
+      province: form.province.trim() || null,
+      whatsapp_number: form.whatsapp_number.trim() || null,
       rating: parseFloat(form.rating) || 4.0,
       image_url: form.image_url || "/placeholder.svg",
       delivery_time: form.delivery_time || "30-40 min",
@@ -122,7 +154,20 @@ const RestaurantManager = () => {
 
   const handleEdit = (r: Restaurant) => {
     setEditingId(r.id);
-    setForm({ name: r.name, cuisine: r.cuisine, rating: String(r.rating), image_url: r.image_url, delivery_time: r.delivery_time });
+    setForm({
+      name: r.name,
+      slug: r.slug,
+      cuisine: r.cuisine,
+      description: r.description || "",
+      address_line: r.address_line || "",
+      suburb: r.suburb || "",
+      city: r.city || "",
+      province: r.province || "",
+      whatsapp_number: r.whatsapp_number || "",
+      rating: String(r.rating),
+      image_url: r.image_url,
+      delivery_time: r.delivery_time,
+    });
     setPreviewUrl(r.image_url && r.image_url !== "/placeholder.svg" ? r.image_url : null);
   };
 
@@ -148,8 +193,36 @@ const RestaurantManager = () => {
             <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Restaurant name" />
           </div>
           <div>
+            <Label>Public URL slug</Label>
+            <Input value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value })} placeholder={slugFromName(form.name) || "restaurant-name"} />
+          </div>
+          <div>
             <Label>Cuisine</Label>
             <Input value={form.cuisine} onChange={(e) => setForm({ ...form, cuisine: e.target.value })} placeholder="e.g. Traditional South African" />
+          </div>
+          <div>
+            <Label>Short description</Label>
+            <Input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="A short introduction" />
+          </div>
+          <div>
+            <Label>WhatsApp number (digits only)</Label>
+            <Input value={form.whatsapp_number} onChange={(e) => setForm({ ...form, whatsapp_number: e.target.value })} placeholder="27831234567" type="tel" />
+          </div>
+          <div className="sm:col-span-2">
+            <Label>Address line</Label>
+            <Input value={form.address_line} onChange={(e) => setForm({ ...form, address_line: e.target.value })} placeholder="Street address" />
+          </div>
+          <div>
+            <Label>Suburb</Label>
+            <Input value={form.suburb} onChange={(e) => setForm({ ...form, suburb: e.target.value })} placeholder="Pretoria Central" />
+          </div>
+          <div>
+            <Label>City</Label>
+            <Input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} placeholder="Pretoria" />
+          </div>
+          <div>
+            <Label>Province</Label>
+            <Input value={form.province} onChange={(e) => setForm({ ...form, province: e.target.value })} placeholder="Gauteng" />
           </div>
           <div>
             <Label>Rating</Label>

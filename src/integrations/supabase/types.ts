@@ -20,9 +20,11 @@ export type Database = {
           created_at: string
           description: string
           id: string
+          image_url: string | null
           name: string
           price: number
           restaurant_id: number
+          sort_order: number
           updated_at: string
         }
         Insert: {
@@ -30,9 +32,11 @@ export type Database = {
           created_at?: string
           description?: string
           id?: string
+          image_url?: string | null
           name: string
           price: number
           restaurant_id: number
+          sort_order?: number
           updated_at?: string
         }
         Update: {
@@ -40,9 +44,11 @@ export type Database = {
           created_at?: string
           description?: string
           id?: string
+          image_url?: string | null
           name?: string
           price?: number
           restaurant_id?: number
+          sort_order?: number
           updated_at?: string
         }
         Relationships: [
@@ -182,37 +188,67 @@ export type Database = {
       }
       restaurants: {
         Row: {
+          address_line: string | null
+          city: string | null
+          cover_url: string | null
           created_at: string
           cuisine: string
           delivery_time: string
+          description: string | null
           id: number
           image_url: string
+          is_listed: boolean
+          logo_url: string | null
           name: string
           owner_id: string | null
+          province: string | null
           rating: number
+          slug: string
+          suburb: string | null
           updated_at: string
+          whatsapp_number: string | null
         }
         Insert: {
+          address_line?: string | null
+          city?: string | null
+          cover_url?: string | null
           created_at?: string
           cuisine: string
           delivery_time?: string
+          description?: string | null
           id?: number
           image_url?: string
+          is_listed?: boolean
+          logo_url?: string | null
           name: string
           owner_id?: string | null
+          province?: string | null
           rating?: number
+          slug: string
+          suburb?: string | null
           updated_at?: string
+          whatsapp_number?: string | null
         }
         Update: {
+          address_line?: string | null
+          city?: string | null
+          cover_url?: string | null
           created_at?: string
           cuisine?: string
           delivery_time?: string
+          description?: string | null
           id?: number
           image_url?: string
+          is_listed?: boolean
+          logo_url?: string | null
           name?: string
           owner_id?: string | null
+          province?: string | null
           rating?: number
+          slug?: string
+          suburb?: string | null
           updated_at?: string
+          whatsapp_number?: string | null
         }
         Relationships: []
       }
