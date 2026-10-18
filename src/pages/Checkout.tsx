@@ -14,8 +14,8 @@ import { Separator } from "@/components/ui/separator";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { CreditCard, Banknote } from "lucide-react";
 import { toast } from "sonner";
+import { DELIVERY_FEE, isOpenNow, CLOSED_MESSAGE, OPENING_HOURS_LABEL } from "@/lib/business";
 
-const DELIVERY_FEE = 15;
 
 type PaymentMethod = "card" | "cash";
 
@@ -69,6 +69,10 @@ const Checkout = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isOpenNow()) {
+      toast.error(CLOSED_MESSAGE);
+      return;
+    }
     setLoading(true);
 
     // Prices and totals are calculated on the server from the live menu.
@@ -97,14 +101,14 @@ const Checkout = () => {
     }
 
     if (paymentMethod === "card") {
-      const { data, error } = await supabase.functions.invoke("create-ikhokha-payment", {
+      const { data, error } = await supabase.functions.invoke("create-yoco-payment", {
         body: { orderId, returnOrigin: window.location.origin },
       });
 
       if (error) {
         const details =
           error instanceof FunctionsHttpError ? await error.context.text() : error.message;
-        console.error("create-ikhokha-payment failed:", details);
+        console.error("create-yoco-payment failed:", details);
         toast.error("Could not start card payment. Your order was saved — you can pay cash on delivery.");
         clearCart();
         navigate(`/order-confirmation/${orderId}?payment=failed`);
@@ -112,7 +116,7 @@ const Checkout = () => {
       }
 
       clearCart();
-      window.location.href = (data as { paylinkUrl: string }).paylinkUrl;
+      window.location.href = (data as { redirectUrl: string }).redirectUrl;
       return;
     }
 
@@ -128,6 +132,11 @@ const Checkout = () => {
       <main className="container mx-auto px-4 py-8">
         <h1 className="font-display text-3xl font-bold text-foreground mb-8">Checkout</h1>
 
+        {!isOpenNow() && (
+          <p role="alert" className="mb-6 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+            {CLOSED_MESSAGE}
+          </p>
+        )}
         <div className="grid gap-8 lg:grid-cols-2">
           {/* Delivery Form */}
           <Card>
@@ -228,7 +237,7 @@ const Checkout = () => {
                         Pay by Card
                       </div>
                       <p className="mt-0.5 text-xs text-muted-foreground">
-                        Secure card payment via iKhokha
+                        Secure card payment via Yoco
                       </p>
                     </div>
                   </label>
