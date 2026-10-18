@@ -2,7 +2,8 @@ import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { z } from 'npm:zod@3';
 
-const DELIVERY_FEE = 15;
+// Must match DELIVERY_FEE in src/lib/business.ts (R20, business decision Oct 2026).
+const DELIVERY_FEE = 20;
 
 const BodySchema = z.object({
   customerName: z.string().trim().min(1).max(120),

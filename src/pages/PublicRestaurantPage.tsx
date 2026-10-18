@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
 import { buildWhatsAppLink, openWhatsApp, ROMA_WHATSAPP } from "@/lib/whatsapp";
+import { isOpenNow, OPENING_HOURS_LABEL } from "@/lib/business";
 
 type Restaurant = Tables<"restaurants">;
 type MenuItem = Tables<"menu_items">;
@@ -154,7 +155,7 @@ const PublicRestaurantPage = () => {
     });
 
     const link = buildWhatsAppLink({
-      to: restaurant.whatsapp_number ?? ROMA_WHATSAPP,
+      to: ROMA_WHATSAPP,
       restaurantName: restaurant.name,
       restaurantSlug: restaurant.slug,
     });
@@ -254,9 +255,10 @@ const PublicRestaurantPage = () => {
                   Message Roma on WhatsApp to place your order with {restaurant.name}.
                 </p>
               </div>
-              <Button onClick={handleWhatsAppClick} className="shrink-0 gap-2 md:w-full">
+              <p className="mb-1 hidden text-xs text-muted-foreground md:block">Open {OPENING_HOURS_LABEL}</p>
+              <Button onClick={handleWhatsAppClick} disabled={!isOpenNow()} className="shrink-0 gap-2 md:w-full">
                 <MessageCircle aria-hidden="true" className="h-4 w-4" />
-                Order on WhatsApp
+                {isOpenNow() ? "Order on WhatsApp" : "Closed"}
               </Button>
             </div>
           </aside>

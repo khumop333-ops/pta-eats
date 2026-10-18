@@ -27,7 +27,7 @@ const OrderConfirmation = () => {
       }
     };
     load();
-    // Card payments confirm via webhook, so poll briefly after returning from iKhokha
+    // Card payments confirm via webhook, so poll briefly after returning from Yoco
     const interval = paymentParam === "success" ? setInterval(load, 3000) : undefined;
     const stop = setTimeout(() => interval && clearInterval(interval), 30000);
     return () => {
