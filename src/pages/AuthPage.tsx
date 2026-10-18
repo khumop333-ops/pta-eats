@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
 import Header from "@/components/Header";
@@ -8,18 +8,20 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { toast } from "sonner";
-import { useEffect } from "react";
+import { getAuthReturnPath } from "@/lib/authRedirect";
 
 const AuthPage = () => {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const returnTo = getAuthReturnPath(location.state);
   const [isSignUp, setIsSignUp] = useState(false);
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({ email: "", password: "", fullName: "" });
 
   useEffect(() => {
-    if (user) navigate("/");
-  }, [user, navigate]);
+    if (!authLoading && user) navigate(returnTo, { replace: true });
+  }, [authLoading, user, navigate, returnTo]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -48,7 +50,6 @@ const AuthPage = () => {
         toast.error(error.message);
       } else {
         toast.success("Welcome back!");
-        navigate("/");
       }
     }
 
