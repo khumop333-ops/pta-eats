@@ -21,7 +21,7 @@ type PaymentMethod = "card" | "cash";
 
 const Checkout = () => {
   const { items, subtotal, clearCart } = useCart();
-  const { user, profile } = useAuth();
+  const { user, profile, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("card");
@@ -33,13 +33,16 @@ const Checkout = () => {
   });
 
 
-  // Redirect to auth if not logged in
+  // Wait until Supabase has restored the session before deciding whether to redirect.
   useEffect(() => {
-    if (!user) {
-      toast.error("Please sign in to checkout");
-      navigate("/auth");
-    }
-  }, [user, navigate]);
+    if (authLoading || user) return;
+
+    toast.error("Please sign in to checkout");
+    navigate("/auth", {
+      replace: true,
+      state: { from: "/checkout" },
+    });
+  }, [authLoading, user, navigate]);
 
   // Pre-fill from profile
   useEffect(() => {
@@ -53,6 +56,22 @@ const Checkout = () => {
   }, [profile]);
 
   const total = subtotal + DELIVERY_FEE;
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <main
+          className="container mx-auto flex items-center justify-center px-4 py-24"
+          aria-busy="true"
+        >
+          <p role="status" className="text-muted-foreground">
+            Checking your account…
+          </p>
+        </main>
+      </div>
+    );
+  }
 
   if (items.length === 0) {
     return (
