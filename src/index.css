@@ -94,4 +94,47 @@
       hsl(150 20% 15% / 0.7) 100%
     );
   }
+
+  /* --- Roma public storefront (homepage, /r and /r/:slug) -----------------
+     Additive shared tokens: only the public storefront surfaces use these,
+     so dashboards and the older /restaurant/:id page keep their own look. */
+
+  /* Warm page wash behind the public storefront. */
+  .roma-surface {
+    background-color: hsl(var(--background));
+    background-image: radial-gradient(
+      64rem 30rem at 50% -12rem,
+      hsl(var(--accent) / 0.14),
+      transparent 62%
+    );
+  }
+
+  /* Shared card surface for restaurant tiles and menu rows. */
+  .roma-card {
+    @apply overflow-hidden rounded-2xl border bg-card shadow-sm transition duration-300;
+  }
+
+  /* Branded stand-in for missing or broken photography. */
+  .roma-image-fallback {
+    background-image: linear-gradient(
+      135deg,
+      hsl(var(--primary) / 0.16) 0%,
+      hsl(var(--accent) / 0.3) 52%,
+      hsl(var(--muted)) 100%
+    );
+  }
+
+  /* Legibility veil over hero photography. */
+  .roma-veil {
+    background: linear-gradient(
+      to top,
+      rgb(0 0 0 / 0.78) 0%,
+      rgb(0 0 0 / 0.34) 46%,
+      rgb(0 0 0 / 0.04) 100%
+    );
+  }
+
+  .roma-eyebrow {
+    @apply text-xs font-semibold uppercase tracking-[0.18em] text-primary;
+  }
 }
