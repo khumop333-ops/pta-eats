@@ -6,21 +6,29 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { CartProvider } from "@/context/CartContext";
 import { AuthProvider } from "@/context/AuthContext";
 import { AdminAuthProvider } from "@/context/AdminAuthContext";
+import { Suspense } from "react";
+import RouteFallback from "@/components/RouteFallback";
+import { lazyRoute } from "@/lib/lazyRoute";
+// Eager: the public storefront — where WhatsApp-shared links and the homepage
+// land — must not wait on an extra chunk round-trip on a slow connection.
 import Index from "./pages/Index";
-import RestaurantPage from "./pages/RestaurantPage";
 import PublicRestaurantPage from "./pages/PublicRestaurantPage";
 import RestaurantDirectoryPage from "./pages/RestaurantDirectoryPage";
-import Checkout from "./pages/Checkout";
-import OrderConfirmation from "./pages/OrderConfirmation";
-import AuthPage from "./pages/AuthPage";
-import MyOrders from "./pages/MyOrders";
-import AdminLogin from "./pages/AdminLogin";
-import AdminDashboard from "./pages/AdminDashboard";
-import DelivererLogin from "./pages/DelivererLogin";
-import DelivererDashboard from "./pages/DelivererDashboard";
-import OwnerLogin from "./pages/OwnerLogin";
-import OwnerDashboard from "./pages/OwnerDashboard";
 import NotFound from "./pages/NotFound";
+
+// Lazy: ordering flow, auth, and staff dashboards. Customers no longer
+// download admin/owner/driver code they will never use.
+const RestaurantPage = lazyRoute(() => import("./pages/RestaurantPage"));
+const Checkout = lazyRoute(() => import("./pages/Checkout"));
+const OrderConfirmation = lazyRoute(() => import("./pages/OrderConfirmation"));
+const AuthPage = lazyRoute(() => import("./pages/AuthPage"));
+const MyOrders = lazyRoute(() => import("./pages/MyOrders"));
+const AdminLogin = lazyRoute(() => import("./pages/AdminLogin"));
+const AdminDashboard = lazyRoute(() => import("./pages/AdminDashboard"));
+const DelivererLogin = lazyRoute(() => import("./pages/DelivererLogin"));
+const DelivererDashboard = lazyRoute(() => import("./pages/DelivererDashboard"));
+const OwnerLogin = lazyRoute(() => import("./pages/OwnerLogin"));
+const OwnerDashboard = lazyRoute(() => import("./pages/OwnerDashboard"));
 
 const queryClient = new QueryClient();
 
@@ -33,6 +41,7 @@ const App = () => (
             <Toaster />
             <Sonner />
             <BrowserRouter>
+              <Suspense fallback={<RouteFallback />}>
               <Routes>
                 <Route path="/" element={<Index />} />
                 <Route path="/r" element={<RestaurantDirectoryPage />} />
@@ -50,6 +59,7 @@ const App = () => (
                 <Route path="/owner" element={<OwnerDashboard />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
+              </Suspense>
             </BrowserRouter>
           </AdminAuthProvider>
         </CartProvider>
