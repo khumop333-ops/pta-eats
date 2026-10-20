@@ -19,8 +19,8 @@ const FeaturedRestaurants = () => {
       const data = await fetchRestaurants();
       setRestaurants(data);
     } catch (error) {
-      // fetchRestaurants has its own demo fallback; this only catches an
-      // unexpected throw so the section can never sit on "Loading" forever.
+      // In production fetchRestaurants throws on a failed fetch (demo data is
+      // dev-only), so this is the real outage path: show error + retry.
       console.warn("Featured restaurants unavailable", error);
       setRestaurants([]);
       setFailed(true);
