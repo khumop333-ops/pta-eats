@@ -11,9 +11,9 @@ import heroImage from "@/assets/hero-food.jpg";
 
 const formatPrice = (price: number) => `R ${price.toFixed(2)}`;
 
-// Homepage cards still use the cart flow; switch both to /r/:slug together in
-// the agreed restaurant-page merge.
-const restaurantHref = (id: number) => `/restaurant/${id}`;
+// One canonical restaurant page since the merge: /r/:slug carries the cart,
+// WhatsApp ordering and card/cash checkout.
+const restaurantHref = (slug: string) => `/r/${slug}`;
 
 const resultLinkClass =
   "flex min-h-12 items-center gap-3 rounded-xl px-3 py-2 text-left transition hover:bg-muted focus-visible:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -39,9 +39,9 @@ const HeroSection = () => {
   const results = useMemo(() => searchCatalog(restaurants, trimmed), [restaurants, trimmed]);
   const firstHref =
     results.restaurants[0] !== undefined
-      ? restaurantHref(results.restaurants[0].id)
+      ? restaurantHref(results.restaurants[0].slug)
       : results.dishes[0] !== undefined
-        ? restaurantHref(results.dishes[0].restaurant.id)
+        ? restaurantHref(results.dishes[0].restaurant.slug)
         : null;
 
   const trackSelect = (kind: "restaurant" | "dish", via: "tap" | "enter") => {
@@ -175,7 +175,7 @@ const HeroSection = () => {
                         {results.restaurants.map((restaurant) => (
                           <li key={restaurant.id}>
                             <Link
-                              to={restaurantHref(restaurant.id)}
+                              to={restaurantHref(restaurant.slug)}
                               onClick={() => trackSelect("restaurant", "tap")}
                               className={resultLinkClass}
                             >
@@ -205,7 +205,7 @@ const HeroSection = () => {
                         {results.dishes.map(({ restaurant, item }) => (
                           <li key={item.id}>
                             <Link
-                              to={restaurantHref(restaurant.id)}
+                              to={restaurantHref(restaurant.slug)}
                               onClick={() => trackSelect("dish", "tap")}
                               className={resultLinkClass}
                             >

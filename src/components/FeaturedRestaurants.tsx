@@ -55,7 +55,7 @@ const FeaturedRestaurants = () => {
           {restaurants.map((restaurant) => (
             <StorefrontRestaurantCard
               key={restaurant.id}
-              to={`/restaurant/${restaurant.id}`}
+              to={`/r/${restaurant.slug}`}
               name={restaurant.name}
               imageUrl={restaurant.image}
               cuisine={restaurant.cuisine}

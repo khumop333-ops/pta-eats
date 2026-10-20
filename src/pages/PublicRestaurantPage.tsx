@@ -1,16 +1,21 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Clock, MapPin, MessageCircle } from "lucide-react";
+import { ArrowLeft, Clock, MapPin, MessageCircle, Plus, ShoppingCart } from "lucide-react";
 import { track } from "@vercel/analytics";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
 import { buildWhatsAppLink, openWhatsApp, ROMA_WHATSAPP } from "@/lib/whatsapp";
 import { isOpenNow, OPENING_HOURS_LABEL } from "@/lib/business";
+import { useCart } from "@/context/CartContext";
 import StorefrontPageHeader from "@/components/storefront/StorefrontPageHeader";
 import StorefrontFooter from "@/components/storefront/StorefrontFooter";
 import StorefrontImage from "@/components/storefront/StorefrontImage";
 import StorefrontSectionHeading from "@/components/storefront/StorefrontSectionHeading";
+// Loaded on first open: the drawer brings Radix Dialog (~30 kB gz) and the
+// homepage is the public storefront, so it must not ride in the eager bundle.
+const CartSheet = lazy(() => import("@/components/storefront/CartSheet"));
 import {
   StorefrontLoadingPanel,
   StorefrontNotice,
@@ -30,6 +35,10 @@ const PublicRestaurantPage = () => {
   const [pageError, setPageError] = useState<string | null>(null);
   const [menuError, setMenuError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [cartOpen, setCartOpen] = useState(false);
+  const [cartMounted, setCartMounted] = useState(false);
+
+  const { items, addItem, clearCart, itemCount, subtotal } = useCart();
 
   const loadRestaurant = useCallback(async (isCurrent: () => boolean = () => true) => {
     setLoading(true);
@@ -111,11 +120,17 @@ const PublicRestaurantPage = () => {
     return Array.from(groupedItems.entries());
   }, [menuItems]);
 
+  const quantities = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const item of items) map.set(item.id, item.quantity);
+    return map;
+  }, [items]);
+
   const retry = () => setReloadKey((key) => key + 1);
 
   const shell = (children: ReactNode) => (
-    // pb-24 keeps the fixed mobile order bar from covering the footer.
-    <div className="roma-surface flex min-h-screen flex-col pb-24 md:pb-0">
+    // pb-32 keeps the fixed mobile order bar from covering the footer.
+    <div className="roma-surface flex min-h-screen flex-col pb-32 md:pb-0">
       <StorefrontPageHeader backTo="/r" backLabel="Browse restaurants" />
       <main className="container mx-auto w-full max-w-6xl flex-1 px-4 py-8 md:py-10">
         {children}
@@ -167,16 +182,58 @@ const PublicRestaurantPage = () => {
     .join(", ");
   const closed = !isOpenNow();
 
+  const addToCart = (item: MenuItem) => {
+    const result = addItem({
+      id: item.id,
+      name: item.name,
+      price: Number(item.price),
+      restaurantId: restaurant.id,
+      restaurantName: restaurant.name,
+    });
+
+    if (result === "restaurant-mismatch") {
+      toast("Your cart has food from another restaurant", {
+        description: "Roma delivers one restaurant per order. Start a new cart to add this dish?",
+        action: {
+          label: "Start new cart",
+          onClick: () => {
+            clearCart();
+            addItem({
+              id: item.id,
+              name: item.name,
+              price: Number(item.price),
+              restaurantId: restaurant.id,
+              restaurantName: restaurant.name,
+            });
+          },
+        },
+      });
+      return;
+    }
+
+    track("add_to_cart", {
+      restaurant_slug: restaurant.slug,
+      item_id: item.id,
+    });
+  };
+
   const handleWhatsAppClick = () => {
     track("whatsapp_click", {
       restaurant_slug: slug ?? restaurant.slug,
       source: "restaurant_page",
+      item_count: itemCount,
+      cart_value: Number(subtotal.toFixed(2)),
     });
 
     const link = buildWhatsAppLink({
       to: ROMA_WHATSAPP,
       restaurantName: restaurant.name,
       restaurantSlug: restaurant.slug,
+      items: items.map((item) => ({
+        name: item.name,
+        quantity: item.quantity,
+        priceCents: Math.round(item.price * 100),
+      })),
     });
     openWhatsApp(link);
   };
@@ -251,33 +308,53 @@ const PublicRestaurantPage = () => {
             />
           ) : (
             <div className="mt-8 space-y-8">
-              {menuCategories.map(([category, items]) => (
+              {menuCategories.map(([category, categoryItems]) => (
                 <section key={category} aria-label={category}>
                   <h3 className="mb-3 font-display text-xl font-semibold text-foreground">{category}</h3>
                   <div className="grid gap-3 sm:grid-cols-2">
-                    {items.map((item) => (
-                      <article key={item.id} className="roma-card flex gap-4 p-4 hover:shadow-md">
-                        <StorefrontImage
-                          src={item.image_url}
-                          alt={item.name}
-                          className="h-20 w-20 shrink-0 rounded-xl"
-                          fallbackIconClassName="h-6 w-6"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-start justify-between gap-3">
-                            <h4 className="font-semibold text-foreground">{item.name}</h4>
-                            <span className="shrink-0 font-semibold text-primary">
-                              {formatPrice(item.price)}
-                            </span>
+                    {categoryItems.map((item) => {
+                      const inCart = quantities.get(item.id) ?? 0;
+
+                      return (
+                        <article key={item.id} className="roma-card flex gap-4 p-4 hover:shadow-md">
+                          <StorefrontImage
+                            src={item.image_url}
+                            alt={item.name}
+                            className="h-20 w-20 shrink-0 rounded-xl"
+                            fallbackIconClassName="h-6 w-6"
+                          />
+                          <div className="flex min-w-0 flex-1 flex-col">
+                            <div className="flex items-start justify-between gap-3">
+                              <h4 className="font-semibold text-foreground">{item.name}</h4>
+                              <span className="shrink-0 font-semibold text-primary">
+                                {formatPrice(item.price)}
+                              </span>
+                            </div>
+                            {item.description ? (
+                              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                                {item.description}
+                              </p>
+                            ) : null}
+                            <div className="mt-auto flex items-center gap-2 pt-3">
+                              <Button
+                                size="sm"
+                                onClick={() => addToCart(item)}
+                                disabled={closed}
+                                aria-label={`Add ${item.name} to cart`}
+                                className="gap-1"
+                              >
+                                <Plus aria-hidden="true" className="h-4 w-4" /> Add
+                              </Button>
+                              {inCart > 0 ? (
+                                <span className="text-xs font-medium text-muted-foreground">
+                                  {inCart} in cart
+                                </span>
+                              ) : null}
+                            </div>
                           </div>
-                          {item.description ? (
-                            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                              {item.description}
-                            </p>
-                          ) : null}
-                        </div>
-                      </article>
-                    ))}
+                        </article>
+                      );
+                    })}
                   </div>
                 </section>
               ))}
@@ -286,27 +363,56 @@ const PublicRestaurantPage = () => {
         </section>
 
         <aside className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 px-4 py-3 shadow-lg backdrop-blur md:sticky md:top-6 md:bottom-auto md:inset-x-auto md:w-80 md:shrink-0 md:rounded-2xl md:border md:p-5">
-          <div className="container mx-auto flex max-w-6xl items-center justify-between gap-4 md:block md:mx-0 md:max-w-none">
+          <div className="container mx-auto flex max-w-6xl items-center justify-between gap-3 md:block md:mx-0 md:max-w-none">
             <div className="min-w-0 md:mb-4">
-              <p className="font-semibold text-foreground">Ready to order?</p>
+              <p className="font-semibold text-foreground">
+                {itemCount > 0 ? `Your cart · ${formatPrice(subtotal)}` : "Ready to order?"}
+              </p>
               <p className="hidden text-sm text-muted-foreground md:block">
-                Message Roma on WhatsApp to place your order with {restaurant.name}.
+                {itemCount > 0
+                  ? `${itemCount} ${itemCount === 1 ? "item" : "items"} from ${restaurant.name}.`
+                  : "Add dishes, then order on WhatsApp or check out by card or cash."}
               </p>
             </div>
-            <p className="mb-1 hidden text-xs text-muted-foreground md:block">
-              Open {OPENING_HOURS_LABEL}
-            </p>
-            <Button
-              onClick={handleWhatsAppClick}
-              disabled={closed}
-              className="shrink-0 gap-2 md:w-full"
-            >
-              <MessageCircle aria-hidden="true" className="h-4 w-4" />
-              {closed ? "Closed" : "Order on WhatsApp"}
-            </Button>
+
+            <div className="flex shrink-0 items-center gap-2 md:w-full md:flex-col md:items-stretch">
+              {itemCount > 0 ? (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setCartMounted(true);
+                    setCartOpen(true);
+                  }}
+                  className="gap-2 md:w-full"
+                  aria-label={`View cart, ${itemCount} ${itemCount === 1 ? "item" : "items"}, ${formatPrice(subtotal)}`}
+                >
+                  <ShoppingCart aria-hidden="true" className="h-4 w-4" />
+                  <span className="md:hidden">{itemCount}</span>
+                  <span className="hidden md:inline">View cart</span>
+                </Button>
+              ) : null}
+              <Button
+                onClick={handleWhatsAppClick}
+                disabled={closed}
+                className="shrink-0 gap-2 md:w-full"
+              >
+                <MessageCircle aria-hidden="true" className="h-4 w-4" />
+                {closed ? "Closed" : "Order on WhatsApp"}
+              </Button>
+            </div>
           </div>
         </aside>
       </div>
+
+      {cartMounted ? (
+        <Suspense fallback={null}>
+          <CartSheet
+            open={cartOpen}
+            onOpenChange={setCartOpen}
+            restaurantName={restaurant.name}
+          />
+        </Suspense>
+      ) : null}
     </>
   );
 };

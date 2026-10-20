@@ -18,7 +18,7 @@ import NotFound from "./pages/NotFound";
 
 // Lazy: ordering flow, auth, and staff dashboards. Customers no longer
 // download admin/owner/driver code they will never use.
-const RestaurantPage = lazyRoute(() => import("./pages/RestaurantPage"));
+const LegacyRestaurantRedirect = lazyRoute(() => import("./pages/LegacyRestaurantRedirect"));
 const Checkout = lazyRoute(() => import("./pages/Checkout"));
 const OrderConfirmation = lazyRoute(() => import("./pages/OrderConfirmation"));
 const AuthPage = lazyRoute(() => import("./pages/AuthPage"));
@@ -46,7 +46,7 @@ const App = () => (
                 <Route path="/" element={<Index />} />
                 <Route path="/r" element={<RestaurantDirectoryPage />} />
                 <Route path="/r/:slug" element={<PublicRestaurantPage />} />
-                <Route path="/restaurant/:id" element={<RestaurantPage />} />
+                <Route path="/restaurant/:id" element={<LegacyRestaurantRedirect />} />
                 <Route path="/checkout" element={<Checkout />} />
                 <Route path="/order-confirmation/:orderId" element={<OrderConfirmation />} />
                 <Route path="/auth" element={<AuthPage />} />
