@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, Clock, MapPin, MessageCircle } from "lucide-react";
 import { track } from "@vercel/analytics";
@@ -31,7 +31,7 @@ const PublicRestaurantPage = () => {
   const [menuError, setMenuError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
-  const loadRestaurant = useCallback(async (isCurrent = () => true) => {
+  const loadRestaurant = useCallback(async (isCurrent: () => boolean = () => true) => {
     setLoading(true);
     setRestaurant(null);
     setMenuItems([]);

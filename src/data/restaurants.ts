@@ -22,8 +22,14 @@ export interface Restaurant {
   menu: MenuItem[];
 }
 
-// Keep the homepage usable even when Supabase is not configured/reachable.
-// These are the demo restaurants used for local development.
+// Demo restaurants for LOCAL DEVELOPMENT ONLY (gated inline on import.meta.env.DEV).
+// Their non-UUID menu ids can never pass create-order validation, so showing
+// them in production would advertise food that cannot be ordered and hide
+// real outages behind a healthy-looking homepage.
+//
+// Every use is written as an inline `import.meta.env.DEV` check (not a helper)
+// so Vite constant-folds it to `false` in production builds and this array is
+// tree-shaken out of the bundle. Tests flip it with vi.stubEnv("DEV", …).
 const fallbackRestaurants: Restaurant[] = [
   {
     id: 1,
@@ -107,20 +113,36 @@ function resolveImageUrl(imageUrl?: string | null): string {
   return legacyAssetPath ? `/${legacyAssetPath[1]}` : imageUrl.trim();
 }
 
+/**
+ * Restaurants for the homepage. Uses the same listing rule as the /r
+ * directory (`is_listed = true`) so a restaurant is either public everywhere
+ * or nowhere.
+ *
+ * Production: resolves [] when nothing is listed (UI shows the honest
+ * "onboarding" empty state) and throws on a failed fetch (UI shows the error
+ * state with retry). Dev: falls back to demo data in both cases.
+ */
 export async function fetchRestaurants(): Promise<Restaurant[]> {
   try {
     const { data: restaurants, error: restaurantError } = await supabase
       .from("restaurants")
       .select("*")
+      .eq("is_listed", true)
       .order("id");
 
-    if (restaurantError || !restaurants?.length) {
-      return getFallbackRestaurants();
-    }
+    if (restaurantError) throw restaurantError;
+    if (!restaurants?.length) return import.meta.env.DEV ? getFallbackRestaurants() : [];
 
     const { data: menuItems, error: menuError } = await supabase
       .from("menu_items")
-      .select("*");
+      .select("*")
+      .in(
+        "restaurant_id",
+        restaurants.map((restaurant) => restaurant.id),
+      )
+      // sort_order drives item AND category order (categories render in order
+      // of first appearance), matching /r/:slug.
+      .order("sort_order");
 
     if (menuError) return restaurants.map((restaurant) => mapRestaurant(restaurant, []));
 
@@ -131,13 +153,22 @@ export async function fetchRestaurants(): Promise<Restaurant[]> {
       ),
     );
   } catch (error) {
-    console.warn("Restaurant fetch failed, using local fallback data", error);
-    return getFallbackRestaurants();
+    if (import.meta.env.DEV) {
+      console.warn("Restaurant fetch failed, using local demo data (dev only)", error);
+      return getFallbackRestaurants();
+    }
+    throw error;
   }
 }
 
+/**
+ * Single restaurant for the legacy /restaurant/:id page. Not filtered by
+ * is_listed — matching /r/:slug, a direct link still opens an unlisted
+ * restaurant; listing only controls what is advertised.
+ */
 export async function fetchRestaurantById(id: number): Promise<Restaurant | null> {
   if (!Number.isSafeInteger(id) || id < 1) return null;
+  const fallback = () => (import.meta.env.DEV ? getFallbackRestaurantById(id) : null);
 
   try {
     const { data: restaurant, error: restaurantError } = await supabase
@@ -146,17 +177,18 @@ export async function fetchRestaurantById(id: number): Promise<Restaurant | null
       .eq("id", id)
       .single();
 
-    if (restaurantError || !restaurant) return getFallbackRestaurantById(id);
+    if (restaurantError || !restaurant) return fallback();
 
     const { data: menuItems } = await supabase
       .from("menu_items")
       .select("*")
-      .eq("restaurant_id", id);
+      .eq("restaurant_id", id)
+      .order("sort_order");
 
     return mapRestaurant(restaurant, menuItems || []);
   } catch (error) {
-    console.warn("Restaurant lookup failed, using local fallback data", error);
-    return getFallbackRestaurantById(id);
+    console.warn("Restaurant lookup failed", error);
+    return fallback();
   }
 }
 
