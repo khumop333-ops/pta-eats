@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, ReactNode, useCallback } from "react";
+import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
 
 export interface CartItem {
   id: string;
@@ -31,8 +31,89 @@ interface CartContextType {
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
 
+/**
+ * Persist the cart so a refresh mid-checkout — or a tap away to WhatsApp to
+ * ask a friend — never loses the order. Prices are always re-read from the
+ * live menu by create-order, so a stale cart can never change what is charged;
+ * the TTL exists so yesterday's basket doesn't reappear next week.
+ */
+export const CART_STORAGE_KEY = "roma-cart-v1";
+export const CART_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+type StoredCart = { savedAt: number; items: CartItem[] };
+
+function isFiniteNonNegative(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function isCartItem(value: unknown): value is CartItem {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Partial<CartItem>;
+
+  return (
+    typeof item.id === "string" &&
+    item.id.length > 0 &&
+    typeof item.name === "string" &&
+    isFiniteNonNegative(item.price) &&
+    isFiniteNonNegative(item.restaurantId) &&
+    Number.isInteger(item.quantity) &&
+    (item.quantity as number) > 0 &&
+    (item.restaurantName === undefined || typeof item.restaurantName === "string")
+  );
+}
+
+function readStoredCart(): CartItem[] {
+  if (typeof window === "undefined" || !window.localStorage) return [];
+
+  try {
+    const raw = window.localStorage.getItem(CART_STORAGE_KEY);
+    if (!raw) return [];
+
+    const parsed = JSON.parse(raw) as Partial<StoredCart>;
+    if (!Array.isArray(parsed.items) || typeof parsed.savedAt !== "number") {
+      window.localStorage.removeItem(CART_STORAGE_KEY);
+      return [];
+    }
+
+    if (Date.now() - parsed.savedAt > CART_MAX_AGE_MS) {
+      window.localStorage.removeItem(CART_STORAGE_KEY);
+      return [];
+    }
+
+    const items = parsed.items.filter(isCartItem);
+    // Never restore a mixed cart: create-order prices one restaurant per order.
+    if (new Set(items.map((item) => item.restaurantId)).size > 1) {
+      window.localStorage.removeItem(CART_STORAGE_KEY);
+      return [];
+    }
+
+    return items;
+  } catch {
+    return [];
+  }
+}
+
+function writeStoredCart(items: CartItem[]) {
+  if (typeof window === "undefined" || !window.localStorage) return;
+
+  try {
+    if (items.length === 0) {
+      window.localStorage.removeItem(CART_STORAGE_KEY);
+      return;
+    }
+    const payload: StoredCart = { savedAt: Date.now(), items };
+    window.localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(payload));
+  } catch {
+    // Private mode / quota: the cart still works for this page view.
+  }
+}
+
 export const CartProvider = ({ children }: { children: ReactNode }) => {
-  const [items, setItems] = useState<CartItem[]>([]);
+  const [items, setItems] = useState<CartItem[]>(readStoredCart);
+
+  useEffect(() => {
+    writeStoredCart(items);
+  }, [items]);
 
   const addItem = useCallback(
     (item: Omit<CartItem, "quantity">): AddItemResult => {
