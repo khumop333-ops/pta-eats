@@ -15,6 +15,7 @@ export interface MenuItem {
 export interface Restaurant {
   id: number;
   name: string;
+  slug: string;
   cuisine: string;
   rating: number;
   image: string;
@@ -34,6 +35,7 @@ const fallbackRestaurants: Restaurant[] = [
   {
     id: 1,
     name: "Mama's Kitchen",
+    slug: "mamas-kitchen",
     cuisine: "South African",
     rating: 4.8,
     image: "/restaurant-1.jpg",
@@ -49,6 +51,7 @@ const fallbackRestaurants: Restaurant[] = [
   {
     id: 2,
     name: "Pretoria Grill House",
+    slug: "pretoria-grill-house",
     cuisine: "Grill & BBQ",
     rating: 4.6,
     image: "/restaurant-2.jpg",
@@ -64,6 +67,7 @@ const fallbackRestaurants: Restaurant[] = [
   {
     id: 3,
     name: "Cape Town Fish & Chips",
+    slug: "cape-town-fish-chips",
     cuisine: "Seafood",
     rating: 4.7,
     image: "/restaurant-3.jpg",
@@ -78,6 +82,7 @@ const fallbackRestaurants: Restaurant[] = [
   {
     id: 4,
     name: "Roma Italian",
+    slug: "roma-italian",
     cuisine: "Italian",
     rating: 4.9,
     image: "/hero-food.jpg",
@@ -196,6 +201,7 @@ function mapRestaurant(restaurant: SupabaseRestaurant, items: SupabaseMenuItem[]
   return {
     id: restaurant.id,
     name: restaurant.name,
+    slug: restaurant.slug,
     cuisine: restaurant.cuisine,
     rating: Number(restaurant.rating),
     image: resolveImageUrl(restaurant.image_url),

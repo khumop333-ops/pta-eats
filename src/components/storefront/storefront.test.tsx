@@ -39,7 +39,7 @@ describe("storefront restaurant card", () => {
   it("renders the shared tile for any link target", () => {
     renderWithRouter(
       <StorefrontRestaurantCard
-        to="/restaurant/7"
+        to="/r/thuba-rush"
         name="Thuba Rush"
         cuisine="Grill & BBQ"
         rating={4.6}
@@ -48,7 +48,7 @@ describe("storefront restaurant card", () => {
     );
 
     const card = screen.getByRole("link", { name: "Thuba Rush — view menu" });
-    expect(card).toHaveAttribute("href", "/restaurant/7");
+    expect(card).toHaveAttribute("href", "/r/thuba-rush");
     expect(screen.getByText("Thuba Rush")).toBeInTheDocument();
     expect(screen.getByText("20-30 min")).toBeInTheDocument();
     expect(screen.getByText(/Grill & BBQ/)).toBeInTheDocument();

@@ -15,6 +15,7 @@ const catalog = [
   {
     id: 7,
     name: "Magwinya Zone",
+    slug: "magwinya-zone",
     cuisine: "Street food",
     rating: 4.5,
     image: "/placeholder.svg",
@@ -26,6 +27,7 @@ const catalog = [
   {
     id: 8,
     name: "Sheamus",
+    slug: "sheamus",
     cuisine: "Grill",
     rating: 4.2,
     image: "/placeholder.svg",
@@ -41,7 +43,7 @@ function renderHero() {
       <MemoryRouter initialEntries={["/"]}>
         <Routes>
           <Route path="/" element={<HeroSection />} />
-          <Route path="/restaurant/:id" element={<p>Restaurant page</p>} />
+          <Route path="/r/:slug" element={<p>Restaurant page</p>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -62,13 +64,13 @@ describe("HeroSection search", () => {
 
     const dishes = await screen.findByRole("region", { name: "Dishes" });
     const dish = within(dishes).getByRole("link", { name: /Kota Classic/ });
-    expect(dish).toHaveAttribute("href", "/restaurant/7");
+    expect(dish).toHaveAttribute("href", "/r/magwinya-zone");
     expect(dish).toHaveTextContent("R 45.00");
     expect(dish).toHaveTextContent("at Magwinya Zone");
 
     fireEvent.change(searchBox(), { target: { value: "sheamus" } });
     const restaurants = await screen.findByRole("region", { name: "Restaurants" });
-    expect(within(restaurants).getByRole("link", { name: /Sheamus/ })).toHaveAttribute("href", "/restaurant/8");
+    expect(within(restaurants).getByRole("link", { name: /Sheamus/ })).toHaveAttribute("href", "/r/sheamus");
   });
 
   it("does nothing for a one-letter query", async () => {

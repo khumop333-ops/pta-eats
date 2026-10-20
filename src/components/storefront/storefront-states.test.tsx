@@ -3,13 +3,14 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-// The storefront pages read auth/cart context only through the shared header,
-// which is not used by these two guest routes, so a light provider stack is enough.
+// The guest routes are rendered in the same provider stack as the app minus
+// auth: the restaurant page now owns the cart, so CartProvider is required.
 const fromMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/integrations/supabase/client", () => ({ supabase: { from: fromMock } }));
 vi.mock("@vercel/analytics", () => ({ track: vi.fn() }));
 
+import { CartProvider } from "@/context/CartContext";
 import RestaurantDirectoryPage from "@/pages/RestaurantDirectoryPage";
 import PublicRestaurantPage from "@/pages/PublicRestaurantPage";
 
@@ -29,10 +30,12 @@ const renderAt = (path: string, ui: React.ReactElement) =>
   render(
     <QueryClientProvider client={new QueryClient()}>
       <MemoryRouter initialEntries={[path]}>
-        <Routes>
-          <Route path="/r" element={ui} />
-          <Route path="/r/:slug" element={ui} />
-        </Routes>
+        <CartProvider>
+          <Routes>
+            <Route path="/r" element={ui} />
+            <Route path="/r/:slug" element={ui} />
+          </Routes>
+        </CartProvider>
       </MemoryRouter>
     </QueryClientProvider>,
   );
