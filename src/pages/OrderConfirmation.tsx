@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 import { useParams, Link, useSearchParams } from "react-router-dom";
 import Header from "@/components/Header";
 import { Button } from "@/components/ui/button";
-import { CheckCircle, Banknote, XCircle, Loader2 } from "lucide-react";
+import { toast } from "sonner";
+import { CheckCircle, Banknote, XCircle, Loader2, CreditCard } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { paymentErrorMessage, startYocoCheckout } from "@/lib/payments";
 
 const OrderConfirmation = () => {
   const { orderId } = useParams();
@@ -11,6 +13,7 @@ const OrderConfirmation = () => {
   const paymentParam = searchParams.get("payment");
   const [order, setOrder] = useState<{ payment_method: string; payment_status: string } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [retrying, setRetrying] = useState(false);
 
   useEffect(() => {
     if (!orderId) return;
@@ -42,6 +45,21 @@ const OrderConfirmation = () => {
   const isFailed = order?.payment_status === "failed" || paymentParam === "failed" || paymentParam === "cancelled";
 
   const failed = isFailed && !isPaid;
+  // A saved card order whose payment failed can be retried without re-ordering.
+  const canRetryCard = failed && !isCash && Boolean(order);
+
+  const handleRetryPayment = async () => {
+    if (!orderId || retrying) return;
+    setRetrying(true);
+
+    try {
+      const { redirectUrl } = await startYocoCheckout(orderId);
+      window.location.href = redirectUrl;
+    } catch (error) {
+      toast.error(paymentErrorMessage(error));
+      setRetrying(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -95,6 +113,16 @@ const OrderConfirmation = () => {
         </p>
 
         <div className="mt-8 flex flex-wrap justify-center gap-3">
+          {canRetryCard ? (
+            <Button onClick={handleRetryPayment} disabled={retrying} className="gap-2">
+              {retrying ? (
+                <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+              ) : (
+                <CreditCard aria-hidden="true" className="h-4 w-4" />
+              )}
+              {retrying ? "Opening payment…" : "Pay now by card"}
+            </Button>
+          ) : null}
           <Button asChild variant="outline">
             <Link to="/my-orders">View My Orders</Link>
           </Button>

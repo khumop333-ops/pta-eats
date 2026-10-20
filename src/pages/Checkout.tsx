@@ -14,7 +14,8 @@ import { Separator } from "@/components/ui/separator";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { CreditCard, Banknote } from "lucide-react";
 import { toast } from "sonner";
-import { DELIVERY_FEE, isOpenNow, CLOSED_MESSAGE, OPENING_HOURS_LABEL } from "@/lib/business";
+import { DELIVERY_FEE, isOpenNow, CLOSED_MESSAGE } from "@/lib/business";
+import { startYocoCheckout } from "@/lib/payments";
 
 
 type PaymentMethod = "card" | "cash";
@@ -120,23 +121,20 @@ const Checkout = () => {
     }
 
     if (paymentMethod === "card") {
-      const { data, error } = await supabase.functions.invoke("create-yoco-payment", {
-        body: { orderId, returnOrigin: window.location.origin },
-      });
-
-      if (error) {
-        const details =
-          error instanceof FunctionsHttpError ? await error.context.text() : error.message;
-        console.error("create-yoco-payment failed:", details);
-        toast.error("Could not start card payment. Your order was saved — you can pay cash on delivery.");
+      try {
+        const { redirectUrl } = await startYocoCheckout(orderId);
+        clearCart();
+        window.location.href = redirectUrl;
+        return;
+      } catch (error) {
+        console.error("create-yoco-payment failed:", error);
+        toast.error(
+          "Could not start card payment. Your order was saved — you can retry the payment or pay cash on delivery.",
+        );
         clearCart();
         navigate(`/order-confirmation/${orderId}?payment=failed`);
         return;
       }
-
-      clearCart();
-      window.location.href = (data as { redirectUrl: string }).redirectUrl;
-      return;
     }
 
     clearCart();
