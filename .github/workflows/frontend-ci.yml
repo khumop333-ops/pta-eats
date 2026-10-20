@@ -26,6 +26,18 @@ jobs:
       - name: Install (npm ci — package-lock.json is the only lockfile)
         run: npm ci --no-audit --no-fund
 
+      - name: Guard against redacted secrets
+        run: |
+          # The yoco-webhook was once committed with a redaction placeholder
+          # `[SECURITY_DATA]'YOCO_WEBHOOK_SECRET')` instead of Deno.env.get(...).
+          # This guard ensures no such placeholder ever ships again.
+          if grep -R "SECURITY_DATA" supabase/ src/ --exclude-dir=node_modules; then
+            echo "::error::Found SECURITY_DATA placeholder — fix supabase/functions/yoco-webhook/index.ts"
+            exit 1
+          fi
+          # Also ensure the webhook actually reads the secret
+          grep -q "Deno.env.get('YOCO_WEBHOOK_SECRET')" supabase/functions/yoco-webhook/index.ts
+
       # The root tsconfig.json is a solution file ("files": [] + references), so a
       # bare `tsc --noEmit` checks nothing. Check each real project explicitly.
       - name: Typecheck

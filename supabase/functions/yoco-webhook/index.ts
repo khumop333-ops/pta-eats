@@ -91,7 +91,7 @@ Deno.serve(async (req) => {
     });
 
   try {
-    const secret = [SECURITY_DATA]'YOCO_WEBHOOK_SECRET');
+    const secret = Deno.env.get('YOCO_WEBHOOK_SECRET');
     if (!secret) {
       console.error('Webhook rejected: YOCO_WEBHOOK_SECRET is not configured');
       return json({ error: 'Not configured' }, 503);
