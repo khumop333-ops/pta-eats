@@ -26,8 +26,12 @@ jobs:
       - name: Install (npm ci — package-lock.json is the only lockfile)
         run: npm ci --no-audit --no-fund
 
+      # The root tsconfig.json is a solution file ("files": [] + references), so a
+      # bare `tsc --noEmit` checks nothing. Check each real project explicitly.
       - name: Typecheck
-        run: npx tsc --noEmit
+        run: |
+          npx tsc -p tsconfig.app.json --noEmit
+          npx tsc -p tsconfig.node.json --noEmit
 
       - name: Unit tests
         run: npm test
