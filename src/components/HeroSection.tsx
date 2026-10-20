@@ -12,7 +12,7 @@ import heroImage from "@/assets/hero-food.jpg";
 const formatPrice = (price: number) => `R ${price.toFixed(2)}`;
 
 // One canonical restaurant page since the merge: /r/:slug carries the cart,
-// WhatsApp ordering and card/cash checkout.
+// WhatsApp ordering and bank-transfer/cash checkout.
 const restaurantHref = (slug: string) => `/r/${slug}`;
 
 const resultLinkClass =

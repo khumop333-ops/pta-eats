@@ -19,6 +19,10 @@ import NotFound from "./pages/NotFound";
 // Lazy: ordering flow, auth, and staff dashboards. Customers no longer
 // download admin/owner/driver code they will never use.
 const LegacyRestaurantRedirect = lazyRoute(() => import("./pages/LegacyRestaurantRedirect"));
+// The live, guest-friendly checkout: bank transfer / cash, sent via WhatsApp.
+const WhatsAppCheckout = lazyRoute(() => import("./pages/WhatsAppCheckout"));
+// Dormant: the old card/cash checkout is still routed for direct links, but
+// nothing in the storefront points at it any more.
 const Checkout = lazyRoute(() => import("./pages/Checkout"));
 const OrderConfirmation = lazyRoute(() => import("./pages/OrderConfirmation"));
 const AuthPage = lazyRoute(() => import("./pages/AuthPage"));
@@ -47,6 +51,7 @@ const App = () => (
                 <Route path="/r" element={<RestaurantDirectoryPage />} />
                 <Route path="/r/:slug" element={<PublicRestaurantPage />} />
                 <Route path="/restaurant/:id" element={<LegacyRestaurantRedirect />} />
+                <Route path="/order" element={<WhatsAppCheckout />} />
                 <Route path="/checkout" element={<Checkout />} />
                 <Route path="/order-confirmation/:orderId" element={<OrderConfirmation />} />
                 <Route path="/auth" element={<AuthPage />} />

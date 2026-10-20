@@ -36,7 +36,9 @@ const CartSheet = ({ open, onOpenChange, restaurantName }: CartSheetProps) => {
 
   const goToCheckout = () => {
     onOpenChange(false);
-    navigate("/checkout");
+    // /order is the live flow: bank transfer details + cash on delivery, sent
+    // to Roma on WhatsApp. /checkout (card/cash, writes an order) is dormant.
+    navigate("/order");
   };
 
   return (
@@ -124,12 +126,12 @@ const CartSheet = ({ open, onOpenChange, restaurantName }: CartSheetProps) => {
             </dl>
 
             <Button className="w-full" size="lg" onClick={goToCheckout} disabled={closed}>
-              {closed ? "Closed" : "Card or cash checkout"}
+              {closed ? "Closed" : "Checkout"}
             </Button>
             <p className="text-center text-xs text-muted-foreground">
               {closed
                 ? `Ordering opens again ${OPENING_HOURS_LABEL}.`
-                : "Or order on WhatsApp — no account needed."}
+                : "Pay by bank transfer or cash on delivery — no account needed."}
             </p>
           </SheetFooter>
         ) : null}

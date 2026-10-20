@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Clock, MapPin, MessageCircle, Plus, ShoppingCart } from "lucide-react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { ArrowLeft, ArrowRight, Clock, MapPin, MessageCircle, Plus, ShoppingCart } from "lucide-react";
 import { track } from "@vercel/analytics";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,7 @@ const formatPrice = (price: number) => `R${Number(price).toFixed(2)}`;
 
 const PublicRestaurantPage = () => {
   const { slug } = useParams();
+  const navigate = useNavigate();
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -189,6 +190,7 @@ const PublicRestaurantPage = () => {
       price: Number(item.price),
       restaurantId: restaurant.id,
       restaurantName: restaurant.name,
+      restaurantSlug: restaurant.slug,
     });
 
     if (result === "restaurant-mismatch") {
@@ -204,6 +206,7 @@ const PublicRestaurantPage = () => {
               price: Number(item.price),
               restaurantId: restaurant.id,
               restaurantName: restaurant.name,
+              restaurantSlug: restaurant.slug,
             });
           },
         },
@@ -371,7 +374,7 @@ const PublicRestaurantPage = () => {
               <p className="hidden text-sm text-muted-foreground md:block">
                 {itemCount > 0
                   ? `${itemCount} ${itemCount === 1 ? "item" : "items"} from ${restaurant.name}.`
-                  : "Add dishes, then order on WhatsApp or check out by card or cash."}
+                  : "Add dishes, then check out — pay by bank transfer or cash on delivery."}
               </p>
             </div>
 
@@ -391,14 +394,28 @@ const PublicRestaurantPage = () => {
                   <span className="hidden md:inline">View cart</span>
                 </Button>
               ) : null}
-              <Button
-                onClick={handleWhatsAppClick}
-                disabled={closed}
-                className="shrink-0 gap-2 md:w-full"
-              >
-                <MessageCircle aria-hidden="true" className="h-4 w-4" />
-                {closed ? "Closed" : "Order on WhatsApp"}
-              </Button>
+              {itemCount > 0 ? (
+                // With food in the cart, checkout is the only way to send an
+                // order: it collects the delivery details and includes the
+                // delivery fee in the WhatsApp message.
+                <Button
+                  onClick={() => navigate("/order")}
+                  disabled={closed}
+                  className="shrink-0 gap-2 md:w-full"
+                >
+                  <ArrowRight aria-hidden="true" className="h-4 w-4" />
+                  {closed ? "Closed" : "Checkout"}
+                </Button>
+              ) : (
+                <Button
+                  onClick={handleWhatsAppClick}
+                  disabled={closed}
+                  className="shrink-0 gap-2 md:w-full"
+                >
+                  <MessageCircle aria-hidden="true" className="h-4 w-4" />
+                  {closed ? "Closed" : "Order on WhatsApp"}
+                </Button>
+              )}
             </div>
           </div>
         </aside>

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { CartProvider } from "@/context/CartContext";
 
@@ -55,7 +55,8 @@ const renderPage = () =>
       <CartProvider>
         <Routes>
           <Route path="/r/:slug" element={<PublicRestaurantPage />} />
-          <Route path="/checkout" element={<p>Checkout page</p>} />
+          <Route path="/checkout" element={<p>Dormant checkout page</p>} />
+          <Route path="/order" element={<p>WhatsApp checkout</p>} />
         </Routes>
       </CartProvider>
     </MemoryRouter>,
@@ -85,18 +86,25 @@ describe("public restaurant page ordering", () => {
     expect(screen.getByText("Your cart · R110.00")).toBeInTheDocument();
     expect(screen.getAllByText("2 in cart")).toHaveLength(1);
 
-    // The WhatsApp button now carries the cart as an itemised message.
-    fireEvent.click(screen.getByRole("button", { name: /Order on WhatsApp/ }));
-    const link = openWhatsAppMock.mock.calls[0][0] as string;
-    const message = decodeURIComponent(link.split("?text=")[1] ?? "");
-
-    expect(message).toContain("2x Kota Classic — R45.00");
-    expect(message).toContain("1x Magwinya (6) — R20.00");
-    expect(message).toContain("Estimated: R110.00");
     expect(trackMock).toHaveBeenCalledWith(
       "add_to_cart",
       expect.objectContaining({ restaurant_slug: "magwinya-zone" }),
     );
+  });
+
+  it("hands a non-empty cart to the checkout instead of sending a bare WhatsApp message", async () => {
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add Kota Classic to cart" }));
+
+    // With food in the cart the only order button is Checkout, so the delivery
+    // fee and customer details can never be skipped.
+    expect(screen.queryByRole("button", { name: /Order on WhatsApp/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+
+    expect(await screen.findByText("WhatsApp checkout")).toBeInTheDocument();
+    expect(openWhatsAppMock).not.toHaveBeenCalled();
   });
 
   it("keeps a plain WhatsApp enquiry when the cart is empty", async () => {
@@ -115,7 +123,10 @@ describe("public restaurant page ordering", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Add Kota Classic to cart" }));
     fireEvent.click(screen.getByRole("button", { name: /View cart/ }));
 
-    expect(await screen.findByRole("dialog", { name: /Your cart/ })).toBeInTheDocument();
-    expect(screen.getByText("Delivery fee")).toBeInTheDocument();
+    const drawer = await screen.findByRole("dialog", { name: /Your cart/ });
+    expect(within(drawer).getByText("Delivery fee")).toBeInTheDocument();
+
+    fireEvent.click(within(drawer).getByRole("button", { name: "Checkout" }));
+    expect(await screen.findByText("WhatsApp checkout")).toBeInTheDocument();
   });
 });
