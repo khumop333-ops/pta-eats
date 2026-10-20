@@ -64,6 +64,8 @@ const renderPage = () =>
 describe("public restaurant page ordering", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // A persisted cart survives remounts by design; start each case empty.
+    window.localStorage.clear();
     fromMock.mockImplementation((table: string) =>
       queryChain(
         table === "restaurants"
