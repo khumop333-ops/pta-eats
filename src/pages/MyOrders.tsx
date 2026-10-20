@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import Header from "@/components/Header";
 import { Badge } from "@/components/ui/badge";
-import { Package, Clock, ChevronDown, ChevronUp } from "lucide-react";
+import { Package, Clock, ChevronDown, ChevronUp, CreditCard, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { paymentErrorMessage, startYocoCheckout } from "@/lib/payments";
 
 interface OrderItem {
   id: string;
@@ -41,6 +43,7 @@ const MyOrders = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [payingOrderId, setPayingOrderId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) navigate("/auth");
@@ -81,6 +84,19 @@ const MyOrders = () => {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [user]);
+
+  const retryCardPayment = async (orderId: string) => {
+    if (payingOrderId) return;
+    setPayingOrderId(orderId);
+
+    try {
+      const { redirectUrl } = await startYocoCheckout(orderId);
+      window.location.href = redirectUrl;
+    } catch (error) {
+      toast.error(paymentErrorMessage(error));
+      setPayingOrderId(null);
+    }
+  };
 
   if (authLoading) return null;
 
@@ -162,6 +178,21 @@ const MyOrders = () => {
                                 : "Awaiting payment"}
                         </span>
                       </div>
+                      {order.payment_method === "card" && order.payment_status !== "paid" ? (
+                        <Button
+                          size="sm"
+                          className="mt-2 w-full gap-2"
+                          onClick={() => retryCardPayment(order.id)}
+                          disabled={payingOrderId !== null}
+                        >
+                          {payingOrderId === order.id ? (
+                            <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <CreditCard aria-hidden="true" className="h-4 w-4" />
+                          )}
+                          {payingOrderId === order.id ? "Opening payment…" : "Pay now by card"}
+                        </Button>
+                      ) : null}
                       <p className="text-xs text-muted-foreground">📍 {order.delivery_address}</p>
                     </div>
                   )}

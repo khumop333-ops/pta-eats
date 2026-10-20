@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Trash2, Pencil, Plus } from "lucide-react";
+import { Trash2, Pencil, Plus, ArrowUp, ArrowDown } from "lucide-react";
 import { toast } from "sonner";
 
 interface MenuItemRow {
@@ -12,6 +12,7 @@ interface MenuItemRow {
   description: string;
   price: number;
   category: string;
+  sort_order: number;
 }
 
 const emptyForm = { name: "", description: "", price: "", category: "Mains" };
@@ -21,12 +22,14 @@ const MenuItemManager = ({ restaurantId }: { restaurantId: number }) => {
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
 
+  // sort_order is what the public menu renders by (item AND category order),
+  // so the admin list must show the same sequence the customer sees.
   const fetchItems = async () => {
     const { data } = await supabase
       .from("menu_items")
       .select("*")
       .eq("restaurant_id", restaurantId)
-      .order("category");
+      .order("sort_order");
     setItems((data as MenuItemRow[]) || []);
   };
 
@@ -38,12 +41,16 @@ const MenuItemManager = ({ restaurantId }: { restaurantId: number }) => {
       return;
     }
 
+    // New dishes land at the end of the menu instead of jumping to the top.
+    const nextSortOrder = items.reduce((max, item) => Math.max(max, item.sort_order ?? 0), 0) + 10;
+
     const payload = {
       restaurant_id: restaurantId,
       name: form.name,
       description: form.description,
       price: parseFloat(form.price),
       category: form.category || "Mains",
+      ...(editingId ? {} : { sort_order: nextSortOrder }),
     };
 
     if (editingId) {
@@ -70,6 +77,38 @@ const MenuItemManager = ({ restaurantId }: { restaurantId: number }) => {
     const { error } = await supabase.from("menu_items").delete().eq("id", id);
     if (error) { toast.error("Failed to delete"); return; }
     toast.success("Item deleted");
+    fetchItems();
+  };
+
+  const moveItem = async (item: MenuItemRow, direction: -1 | 1) => {
+    const siblings = items.filter((candidate) => candidate.category === item.category);
+    const index = siblings.findIndex((candidate) => candidate.id === item.id);
+    const neighbour = siblings[index + direction];
+
+    if (!neighbour) return;
+
+    const itemOrder = item.sort_order;
+    // Rows seeded before sort_order existed can share a value; nudge so the
+    // swap still produces a stable, visible move.
+    const neighbourOrder =
+      neighbour.sort_order === itemOrder
+        ? itemOrder + direction
+        : neighbour.sort_order;
+
+    const { error: itemError } = await supabase
+      .from("menu_items")
+      .update({ sort_order: neighbourOrder })
+      .eq("id", item.id);
+    const { error: neighbourError } = await supabase
+      .from("menu_items")
+      .update({ sort_order: itemOrder })
+      .eq("id", neighbour.id);
+
+    if (itemError || neighbourError) {
+      toast.error("Could not change the order");
+      return;
+    }
+
     fetchItems();
   };
 
@@ -118,17 +157,37 @@ const MenuItemManager = ({ restaurantId }: { restaurantId: number }) => {
           <div key={cat}>
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">{cat}</p>
             <div className="space-y-1">
-              {items.filter((i) => i.category === cat).map((item) => (
+              {items.filter((i) => i.category === cat).map((item, index, siblings) => (
                 <div key={item.id} className="flex items-center justify-between rounded border bg-card px-3 py-2">
                   <div>
                     <span className="text-sm font-medium text-foreground">{item.name}</span>
                     <span className="ml-2 text-xs text-muted-foreground">R {Number(item.price).toFixed(2)}</span>
                   </div>
                   <div className="flex gap-1">
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEdit(item)}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      aria-label={`Move ${item.name} up`}
+                      disabled={index === 0}
+                      onClick={() => moveItem(item, -1)}
+                    >
+                      <ArrowUp className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      aria-label={`Move ${item.name} down`}
+                      disabled={index === siblings.length - 1}
+                      onClick={() => moveItem(item, 1)}
+                    >
+                      <ArrowDown className="h-3 w-3" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" aria-label={`Edit ${item.name}`} onClick={() => handleEdit(item)}>
                       <Pencil className="h-3 w-3" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(item.id)}>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" aria-label={`Delete ${item.name}`} onClick={() => handleDelete(item.id)}>
                       <Trash2 className="h-3 w-3" />
                     </Button>
                   </div>
