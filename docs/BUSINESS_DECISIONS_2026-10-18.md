@@ -17,7 +17,7 @@ Decisions made by the owner on 18 Oct 2026. Code updated the same day where poss
    `VITE_ROMA_WHATSAPP_NUMBER` = `27612821819` → then redeploy.
 2. **Yoco Portal** (Online payments → Payment gateway): copy the **live secret key** (`sk_live_…`). Keep test key (`sk_test_…`) for staging.
 3. **Supabase** → Edge Functions → Secrets: add `YOCO_SECRET_KEY` (live key), and `YOCO_WEBHOOK_SECRET` (from step 4). Old `IKHOKHA_*` secrets can be deleted.
-4. **Yoco Portal → Webhooks**: register endpoint `https://jxfjbxrrbpfibdhwlhyh.supabase.co/functions/v1/yoco-webhook`, subscribe to payment completed/failed events, copy its signing secret (`whsec_…`) into `YOCO_WEBHOOK_SECRET` (step 3).
+4. **Yoco Portal → Webhooks**: register endpoint `https://fxedufukvxsuaqhxkdad.supabase.co/functions/v1/yoco-webhook`, subscribe to payment completed/failed events, copy its signing secret (`whsec_…`) into `YOCO_WEBHOOK_SECRET` (step 3).
 5. **Deploy the new Edge Functions** (`create-yoco-payment`, `yoco-webhook`) — via `supabase functions deploy` or by merging the PR; delete the deployed iKhokha functions in the Supabase dashboard (removing them from the repo does not undeploy them).
 6. **Test payment**: with the *test* key first — place a card order, confirm it lands on Yoco's page, pay with a test card, confirm the order flips to `paid` by webhook, and you're returned to the confirmation page. Then swap in the live key and do one small real payment.
 
