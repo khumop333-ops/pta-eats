@@ -1,14 +1,11 @@
-User-agent: Googlebot
-Allow: /
-
-User-agent: Bingbot
-Allow: /
-
-User-agent: Twitterbot
-Allow: /
-
-User-agent: facebookexternalhit
-Allow: /
-
 User-agent: *
 Allow: /
+# Staff and account areas have nothing useful for search engines.
+Disallow: /admin
+Disallow: /owner
+Disallow: /deliverer
+Disallow: /checkout
+Disallow: /my-orders
+Disallow: /order-confirmation/
+
+Sitemap: https://roma.africa/sitemap.xml
