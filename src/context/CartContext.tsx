@@ -8,6 +8,8 @@ export interface CartItem {
   restaurantId: number;
   /** Shown in the cart so the customer always knows whose food this is. */
   restaurantName?: string;
+  /** Used for the "Sent via roma.africa/r/…" line on the WhatsApp order. */
+  restaurantSlug?: string;
 }
 
 /**
@@ -27,6 +29,7 @@ interface CartContextType {
   itemCount: number;
   restaurantId: number | null;
   restaurantName: string | null;
+  restaurantSlug: string | null;
 }
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
@@ -58,7 +61,8 @@ function isCartItem(value: unknown): value is CartItem {
     isFiniteNonNegative(item.restaurantId) &&
     Number.isInteger(item.quantity) &&
     (item.quantity as number) > 0 &&
-    (item.restaurantName === undefined || typeof item.restaurantName === "string")
+    (item.restaurantName === undefined || typeof item.restaurantName === "string") &&
+    (item.restaurantSlug === undefined || typeof item.restaurantSlug === "string")
   );
 }
 
@@ -163,6 +167,7 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
         itemCount,
         restaurantId: items[0]?.restaurantId ?? null,
         restaurantName: items[0]?.restaurantName ?? null,
+        restaurantSlug: items[0]?.restaurantSlug ?? null,
       }}
     >
       {children}

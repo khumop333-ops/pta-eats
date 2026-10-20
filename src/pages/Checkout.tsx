@@ -17,6 +17,15 @@ import { toast } from "sonner";
 import { DELIVERY_FEE, isOpenNow, CLOSED_MESSAGE } from "@/lib/business";
 import { startYocoCheckout } from "@/lib/payments";
 
+/**
+ * DORMANT — legacy checkout (card via Yoco / cash, writes an order to Supabase).
+ *
+ * Since Oct 2026 the live flow is `/order` (WhatsAppCheckout): bank transfer or
+ * cash on delivery, sent to Roma on WhatsApp with no database order. Nothing in
+ * the storefront links here any more; this page is kept, routed and reachable by
+ * direct URL only, along with all Yoco code, so it can be switched back on once
+ * the Yoco keys are configured.
+ */
 
 type PaymentMethod = "card" | "cash";
 
