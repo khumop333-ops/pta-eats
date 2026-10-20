@@ -5,7 +5,9 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist"] },
+  // src/components/ui/** is vendored shadcn-ui output: restyle it via theme
+  // tokens and wrappers, don't lint-fix generated primitives by hand.
+  { ignores: ["dist", "src/components/ui/**"] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],

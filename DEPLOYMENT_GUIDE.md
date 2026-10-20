@@ -134,7 +134,7 @@ This is required for magic-link / OAuth / password-reset emails to send users to
 ## Step 4 – Local development (so you can edit freely)
 
 ```bash
-# 1. Install dependencies (npm or bun or pnpm)
+# 1. Install dependencies (npm only — package-lock.json is the lockfile)
 npm install
 
 # 2. Make sure .env has the right Supabase credentials

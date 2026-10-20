@@ -1,0 +1,42 @@
+name: Frontend CI
+
+# Runs on every PR (and on main after merge) so a red typecheck, test or build
+# is caught before Vercel auto-deploys main to production.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: frontend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install (npm ci — package-lock.json is the only lockfile)
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Production build
+        run: npm run build
+
+      # Informational until the remaining pre-existing admin `no-explicit-any`
+      # errors are fixed; then drop continue-on-error to make lint a merge gate.
+      - name: Lint (non-blocking)
+        run: npx eslint src
+        continue-on-error: true
