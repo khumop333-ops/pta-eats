@@ -8,13 +8,19 @@ import { fetchRestaurantById, fetchRestaurants } from "./restaurants";
 
 type Query = Record<string, ReturnType<typeof vi.fn>>;
 
+/**
+ * Chainable + awaitable, like the real PostgREST builder: any filter/order
+ * call can be the last one before `await`.
+ */
 function makeQuery(result: unknown): Query {
   const query: Query = {};
-  query.select = vi.fn(() => query);
-  query.order = vi.fn(() => Promise.resolve(result));
-  query.eq = vi.fn(() => query);
-  query.in = vi.fn(() => Promise.resolve(result));
+  for (const method of ["select", "order", "eq", "in"]) {
+    query[method] = vi.fn(() => query);
+  }
   query.single = vi.fn(() => Promise.resolve(result));
+  query.then = vi.fn((resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) =>
+    Promise.resolve(result).then(resolve, reject),
+  );
   return query;
 }
 
@@ -133,5 +139,52 @@ describe("fetchRestaurants listing rule", () => {
 
       await expect(fetchRestaurantById(3)).resolves.toBeNull();
     });
+  });
+});
+
+describe("menu item order", () => {
+  beforeEach(() => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // Seeded menus rely on sort_order for item AND category order; without an
+  // explicit ORDER BY Postgres may return e.g. "Add-ons" before "Kotas".
+  it("homepage fetch orders menu items by sort_order", async () => {
+    const queries = mockTables({ restaurants: { data: [listedRow], error: null } });
+
+    await fetchRestaurants();
+
+    expect(queries.menu_items.order).toHaveBeenCalledWith("sort_order");
+  });
+
+  it("single-restaurant fetch orders menu items by sort_order", async () => {
+    const queries = mockTables({ restaurants: { data: listedRow, error: null } });
+
+    await fetchRestaurantById(2);
+
+    expect(queries.menu_items.order).toHaveBeenCalledWith("sort_order");
+  });
+
+  it("keeps categories in the order of their first item", async () => {
+    mockTables({
+      restaurants: { data: listedRow, error: null },
+      menu_items: {
+        data: [
+          { id: "a", restaurant_id: 2, name: "Thuba 1 Kota", description: "", price: 35, category: "Kotas", image_url: null, sort_order: 10 },
+          { id: "b", restaurant_id: 2, name: "Thuba 1 Dagwood", description: "", price: 60, category: "Dagwoods", image_url: null, sort_order: 110 },
+          { id: "c", restaurant_id: 2, name: "Extra Egg", description: "", price: 5, category: "Add-ons", image_url: null, sort_order: 510 },
+        ],
+        error: null,
+      },
+    });
+
+    const restaurant = await fetchRestaurantById(2);
+
+    expect(restaurant?.menu.map((item) => item.category)).toEqual(["Kotas", "Dagwoods", "Add-ons"]);
   });
 });

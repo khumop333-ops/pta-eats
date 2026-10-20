@@ -139,7 +139,10 @@ export async function fetchRestaurants(): Promise<Restaurant[]> {
       .in(
         "restaurant_id",
         restaurants.map((restaurant) => restaurant.id),
-      );
+      )
+      // sort_order drives item AND category order (categories render in order
+      // of first appearance), matching /r/:slug.
+      .order("sort_order");
 
     if (menuError) return restaurants.map((restaurant) => mapRestaurant(restaurant, []));
 
@@ -179,7 +182,8 @@ export async function fetchRestaurantById(id: number): Promise<Restaurant | null
     const { data: menuItems } = await supabase
       .from("menu_items")
       .select("*")
-      .eq("restaurant_id", id);
+      .eq("restaurant_id", id)
+      .order("sort_order");
 
     return mapRestaurant(restaurant, menuItems || []);
   } catch (error) {
