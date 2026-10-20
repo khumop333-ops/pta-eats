@@ -2,7 +2,8 @@
 <!--
   Static sitemap for roma.africa (the SPA has no server rendering, so this is
   hand-maintained). Restaurant entries mirror the launch slugs seeded in
-  supabase/migrations/20261016090100_*.sql. When a restaurant is added,
+  supabase/migrations/20261016090100_*.sql and
+  20261020090000_*.sql. When a restaurant is added,
   renamed or unlisted in /admin, update its /r/:slug line here.
 -->
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
@@ -11,4 +12,5 @@
   <url><loc>https://roma.africa/r/magwinya-zone</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
   <url><loc>https://roma.africa/r/sheamus</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
   <url><loc>https://roma.africa/r/thuba-rush</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://roma.africa/r/ko-kgorong</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
 </urlset>

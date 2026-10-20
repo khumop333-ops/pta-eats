@@ -10,9 +10,9 @@
 --   * Ko Kgorong is inserted ON CONFLICT (slug) DO NOTHING;
 --   * a menu item is skipped if that restaurant already has an item with the same name.
 --
--- Deliberately NOT loaded (needs owner confirmation):
+-- Price to re-check with the owner (loaded as printed, per Roma's instruction):
 --   * Thuba Rush "10 Full Wings & Chips" — printed as R250, but 10 wings alone are R110
---     and 6 wings & chips are R85, so R250 looks like a typo.
+--     and 6 wings & chips are R85. Correct it in /admin if the owner confirms a typo.
 
 -- ---------------------------------------------------------------------------
 -- 1. Restaurant details (placeholders only)
@@ -33,9 +33,8 @@ SET description = 'Home of the private school kota — kotas, dagwoods, wings, p
 WHERE slug = 'thuba-rush'
   AND (description IS NULL OR btrim(description) = '');
 
--- New restaurant. Unlisted until the owner has approved their page at
--- roma.africa/r/ko-kgorong and a real address is captured (MENU_INTAKE_TEMPLATE
--- checklist) — then switch "listed" on in /admin.
+-- New restaurant. Listed straight away (Roma's decision, 20 Oct 2026); the street
+-- address and plate contents are still to come from the owner — update in /admin.
 INSERT INTO public.restaurants (
   name, slug, cuisine, description, address_line, suburb, city, province, is_listed
 )
@@ -48,7 +47,7 @@ VALUES (
   'Pretoria Central',
   'Pretoria',
   'Gauteng',
-  FALSE
+  TRUE
 )
 ON CONFLICT (slug) DO NOTHING;
 
@@ -147,7 +146,8 @@ WITH menu (slug, sort_order, category, name, description, price) AS (
     'Flavours: BBQ, Prego, Peri Peri, Hot Peri Peri, Mild or Lemon & Herb.', 65.00),
   ('thuba-rush', 370, 'Wings', '6 Full Wings & Chips',
     'Flavours: BBQ, Prego, Peri Peri, Hot Peri Peri, Mild or Lemon & Herb.', 85.00),
-  -- '10 Full Wings & Chips' intentionally omitted — see header.
+  ('thuba-rush', 380, 'Wings', '10 Full Wings & Chips',
+    'Flavours: BBQ, Prego, Peri Peri, Hot Peri Peri, Mild or Lemon & Herb.', 250.00), -- as printed; see header
 
   -- Pap plates
   ('thuba-rush', 410, 'Pap Plates', 'Pap, ¼ Chicken & 2 Sides',            '', 55.00),
