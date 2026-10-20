@@ -1,40 +1,20 @@
-import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
 import StorefrontRestaurantCard from "./storefront/StorefrontRestaurantCard";
 import StorefrontSectionHeading from "./storefront/StorefrontSectionHeading";
 import { StorefrontLoadingGrid, StorefrontNotice } from "./storefront/StorefrontState";
-import { fetchRestaurants, type Restaurant } from "@/data/restaurants";
+import { useHomepageRestaurants } from "@/hooks/use-homepage-restaurants";
 
 const FeaturedRestaurants = () => {
-  const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [failed, setFailed] = useState(false);
-
-  const loadRestaurants = useCallback(async () => {
-    setLoading(true);
-    setFailed(false);
-
-    try {
-      const data = await fetchRestaurants();
-      setRestaurants(data);
-    } catch (error) {
-      // In production fetchRestaurants throws on a failed fetch (demo data is
-      // dev-only), so this is the real outage path: show error + retry.
-      console.warn("Featured restaurants unavailable", error);
-      setRestaurants([]);
-      setFailed(true);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadRestaurants();
-  }, [loadRestaurants]);
+  // Shared with the hero search via React Query — one request for the page.
+  // In production fetchRestaurants throws on a failed fetch (demo data is
+  // dev-only), which surfaces here as the error + retry state.
+  const { data: restaurants = [], isPending: loading, isError: failed, refetch } =
+    useHomepageRestaurants();
+  const loadRestaurants = () => refetch();
 
   return (
-    <section className="container mx-auto max-w-6xl px-4 py-14 md:py-20" aria-labelledby="featured-heading">
+    <section id="restaurants" className="container scroll-mt-20 mx-auto max-w-6xl px-4 py-14 md:py-20" aria-labelledby="featured-heading">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <StorefrontSectionHeading
           eyebrow="Pretoria Central"
