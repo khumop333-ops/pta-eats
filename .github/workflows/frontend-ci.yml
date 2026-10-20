@@ -31,6 +31,11 @@ jobs:
           # The yoco-webhook was once committed with a redaction placeholder
           # `[SECURITY_DATA]'YOCO_WEBHOOK_SECRET')` instead of Deno.env.get(...).
           # This guard ensures no such placeholder ever ships again.
+          #
+          # Do not spell the literal out in any file under src/ or supabase/ —
+          # not even in the guard's own test — or this step matches itself and
+          # fails every build (that is exactly what happened in #18). The test
+          # builds the needle from parts.
           if grep -R "SECURITY_DATA" supabase/ src/ --exclude-dir=node_modules; then
             echo "::error::Found SECURITY_DATA placeholder — fix supabase/functions/yoco-webhook/index.ts"
             exit 1
