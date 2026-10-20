@@ -11,8 +11,8 @@ You are **fully free of Lovable**. This repository is a standard Vite + React + 
 | Frontend | React 18 + Vite 5 + TypeScript | SPA with `react-router-dom` client-side routing |
 | UI | shadcn/ui + Tailwind CSS + Radix UI | Playfair Display + DM Sans fonts |
 | State/forms | React Query, React Hook Form + Zod | Cart is in-memory (Context API) |
-| Backend-as-a-Service | **Supabase** (project `jxfjbxrrbpfibdhwlhyh`) | Auth (email/password), Postgres DB, Edge Functions, Storage |
-| Payments | **iKhokha** integration via Supabase Edge Functions | `create-ikhokha-payment`, `ikhokha-webhook` |
+| Backend-as-a-Service | **Supabase** (project `fxedufukvxsuaqhxkdad`) | Auth (email/password), Postgres DB, Edge Functions, Storage |
+| Payments | **Yoco** integration via Supabase Edge Functions | `create-yoco-payment`, `yoco-webhook` (Svix HMAC + amount check) |
 | Roles | `admin`, `deliverer`, `restaurant_owner`, customer | Enforced via Postgres RLS (`has_role` RPC) |
 
 ### Pages / routes
@@ -27,28 +27,29 @@ You are **fully free of Lovable**. This repository is a standard Vite + React + 
 - `/owner/login`, `/owner` – Restaurant owner dashboard
 
 ### Supabase Edge Functions (deployed under `supabase/functions/`)
-- `admin-create-user` – Create users with roles
-- `create-ikhokha-payment` – Initiate iKhokha payment
-- `ikhokha-webhook` – Receive payment confirmation from iKhokha
-- `create-order` – Create an order transactionally
+- `admin-create-user` – Create users with roles (`verify_jwt: false`, self-auths + admin check)
+- `create-order` – Create an order transactionally (`verify_jwt: false`, `auth.getUser`)
+- `create-yoco-payment` – Initiate Yoco hosted checkout (`verify_jwt: false`, ownership check)
+- `yoco-webhook` – Receive Yoco payment confirmation (Svix HMAC, amount check) (`verify_jwt: false`)
+- `assign-deliverer` – Assign a deliverer to an order (`verify_jwt: false`, admin check)
 
 ---
 
 ## Step 1 – Make sure you own the Supabase project
 
-The app currently points to `https://jxfjbxrrbpfibdhwlhyh.supabase.co`. That project must be in **your** Supabase account, otherwise the previous owner can see/change all your data.
+The app currently points to `https://fxedufukvxsuaqhxkdad.supabase.co`. That project must be in **your** Supabase account, otherwise the previous owner can see/change all your data.
 
 **Check:**
 1. Log into https://supabase.com/dashboard
-2. Do you see a project with reference id `jxfjbxrrbpfibdhwlhyh`?
+2. Do you see a project with reference id `fxedufukvxsuaqhxkdad`?
    - If YES → great, it's yours.
    - If NO → you need to:
      1. Create a new Supabase project.
      2. Apply all migrations in `supabase/migrations/` in order of filename timestamp.
-     3. Deploy the 4 Edge Functions (`supabase/functions/*`).
+     3. Deploy the 5 Edge Functions (`supabase/functions/*`).
      4. Create the storage bucket `restaurant-images` (public read).
      5. Copy your new `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` into `.env`.
-     6. Set any required Edge Function secrets (e.g. iKhokha API keys) using `supabase secrets set`.
+     6. Set any required Edge Function secrets (e.g. Yoco API keys: `YOCO_SECRET_KEY`, `YOCO_WEBHOOK_SECRET`) using `supabase secrets set`.
 
 To link/deploy to Supabase from your own machine:
 ```bash
@@ -58,8 +59,9 @@ supabase link --project-ref YOUR_PROJECT_REF
 supabase db push              # applies migrations
 supabase functions deploy admin-create-user
 supabase functions deploy create-order
-supabase functions deploy create-ikhokha-payment
-supabase functions deploy ikhokha-webhook
+supabase functions deploy create-yoco-payment
+supabase functions deploy yoco-webhook
+supabase functions deploy assign-deliverer
 ```
 
 ---
@@ -169,7 +171,9 @@ Required at runtime (built into the JS bundle, hence the `VITE_` prefix):
 | `VITE_SUPABASE_URL` | Supabase project → Settings → API → Project URL |
 | `VITE_SUPABASE_PUBLISHABLE_KEY` | Supabase project → Settings → API → `anon` public key |
 
-The iKhokha secret key should **NOT** be in Vite env vars — it must live as a Supabase Edge Function secret (set via `supabase secrets set IKHOKHA_SECRET_KEY=...`). The frontend never touches it.
+The Yoco secret keys (`YOCO_SECRET_KEY`, `YOCO_WEBHOOK_SECRET`) should **NOT** be in Vite env vars — they must live as Supabase Edge Function secrets (set via `supabase secrets set` or Dashboard → Edge Functions → Secrets). The frontend never touches them. Old `IKHOKHA_*` secrets can be deleted.
+
+> **Production:** Vercel project `pta-eats` (`prj_6LcHycPnzXmKmvCHkGGSuXVB7NXx`, team `team_I3zGvPNjJs2OgrxmRS5kEDGo`) auto-deploys `main` to production. The Supabase GitHub integration auto-applies new files in `supabase/migrations/` to production on merge — treat every migration as a live schema/data change.
 
 ---
 
