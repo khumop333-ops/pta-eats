@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { useCart } from "@/context/CartContext";
-import { CLOSED_MESSAGE, DELIVERY_FEE, OPENING_HOURS_LABEL, isOpenNow } from "@/lib/business";
+import { PREORDER_MESSAGE, DELIVERY_FEE, isOpenNow } from "@/lib/business";
 import { buildWhatsAppLink, openWhatsApp } from "@/lib/whatsapp";
 import { BANK_TRANSFER_DETAILS, hasBankTransferDetails } from "@/config/bankTransfer";
 import StorefrontPageHeader from "@/components/storefront/StorefrontPageHeader";
@@ -37,6 +37,7 @@ const WhatsAppCheckout = () => {
   });
   const [sentLink, setSentLink] = useState<string | null>(null);
   const [wasBlocked, setWasBlocked] = useState(false);
+  const [sentPreorder, setSentPreorder] = useState(false);
   const [copiedLabel, setCopiedLabel] = useState<string | null>(null);
 
   const closed = !isOpenNow();
@@ -75,11 +76,6 @@ const WhatsAppCheckout = () => {
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (closed) {
-      toast.error(CLOSED_MESSAGE);
-      return;
-    }
-
     if (items.length === 0) return;
 
     // `required` handles this in normal browsers, but some in-app browsers
@@ -90,7 +86,9 @@ const WhatsAppCheckout = () => {
       return;
     }
 
+    const isPreorder = !isOpenNow();
     const link = buildWhatsAppLink({
+      isPreorder,
       restaurantName: restaurantName ?? "Roma",
       restaurantSlug,
       items: items.map((item) => ({
@@ -124,6 +122,7 @@ const WhatsAppCheckout = () => {
     const opened = openWhatsApp(link);
     // Keep the built link: the cart is cleared, so the confirmation screen is
     // the only route back to the exact message if WhatsApp was blocked.
+    setSentPreorder(isPreorder);
     setSentLink(link);
     setWasBlocked(!opened);
     clearCart();
@@ -145,7 +144,7 @@ const WhatsAppCheckout = () => {
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
           We opened WhatsApp with your full order, delivery fee and payment details already filled
           in. <span className="font-medium text-foreground">Press send there</span> and Roma will
-          confirm your delivery.
+          {sentPreorder ? "confirm availability and delivery time after reopening." : "confirm your delivery."}
         </p>
 
         {wasBlocked ? (
@@ -199,7 +198,7 @@ const WhatsAppCheckout = () => {
           role="alert"
           className="mt-6 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
         >
-          {CLOSED_MESSAGE}
+          {PREORDER_MESSAGE}
         </p>
       ) : null}
 
@@ -294,7 +293,7 @@ const WhatsAppCheckout = () => {
               {bankDetailsReady ? (
                 <>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Transfer the total, then send proof of payment on WhatsApp.
+                    {closed ? "Please wait for Roma to confirm your pre-order before transferring payment." : "Transfer the total, then send proof of payment on WhatsApp."}
                   </p>
 
                   <dl className="mt-3 divide-y divide-border rounded-xl border bg-muted/40 px-3">
@@ -401,14 +400,14 @@ const WhatsAppCheckout = () => {
               </div>
             </dl>
 
-            <Button type="submit" size="lg" className="mt-5 w-full gap-2" disabled={closed}>
+            <Button type="submit" size="lg" className="mt-5 w-full gap-2">
               <MessageCircle aria-hidden="true" className="h-4 w-4" />
-              {closed ? "Closed" : "Send order on WhatsApp"}
+              {closed ? "Send pre-order on WhatsApp" : "Send order on WhatsApp"}
             </Button>
 
             <p className="mt-3 text-center text-xs text-muted-foreground">
               {closed
-                ? `Ordering opens again ${OPENING_HOURS_LABEL}.`
+                ? "WhatsApp opens with your pre-order written. Send it there; Roma will confirm after reopening."
                 : "WhatsApp opens with your order already written. Nothing is charged until you send it."}
             </p>
           </section>
