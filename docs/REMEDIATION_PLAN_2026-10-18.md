@@ -38,6 +38,8 @@ These are the highest value-per-minute items in the whole audit. Do them before 
 | 1.4 | Verify iKhokha secrets | Supabase Dashboard → Edge Functions → Secrets: `IKHOKHA_APP_ID`, `IKHOKHA_APP_SECRET`, `IKHOKHA_MODE=live`. Then place one real low-value card order on prod and confirm the webhook flips it to `paid`. | One real order with `payment_status='paid'`, `paid_at` set, via webhook (not manually). |
 | 1.5 | Reconcile DB drift | Run the §9 queries in `docs/DATABASE_STATE.md` in the Supabase SQL editor; compare against the migration chain. | Any drift is either migrated or explained. |
 
+**Menu intake update — 2 November 2026:** Sheamus now has 34 database-backed menu items (23 Plates, 11 Spathlo), captured from the owner's photos in migration `20261102053226_seed_sheamus_menu`. Its street address and cover photo remain outstanding. See `docs/SHEAMUS_MENU.md` for the transcription and source notes.
+
 **Also add a guard so this can never silently break again:** in admin, show a red "not orderable" badge on any restaurant missing a WhatsApp number, menu items, or with `is_listed=false` — and (see 2.5) never list incomplete restaurants publicly.
 
 ---
