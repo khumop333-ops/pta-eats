@@ -36,6 +36,7 @@ type BuildWhatsAppLinkOptions = {
   deliveryFeeCents?: number;
   customer?: WhatsAppCustomer;
   paymentMethod?: WhatsAppPaymentMethod;
+  isPreorder?: boolean;
 };
 
 let hasWarnedMissingRomaNumber = false;
@@ -61,6 +62,7 @@ export const buildWhatsAppLink = ({
   deliveryFeeCents,
   customer,
   paymentMethod,
+  isPreorder = false,
 }: BuildWhatsAppLinkOptions): string => {
   const recipient = to || ROMA_WHATSAPP;
   if (!recipient) {
@@ -68,7 +70,9 @@ export const buildWhatsAppLink = ({
     return "";
   }
 
-  const messageLines = [`Hi Roma! I'd like to order from ${restaurantName}:`, ""];
+  const messageLines = isPreorder
+    ? [`Hi Roma! I'd like to pre-order from ${restaurantName}:`, "Pre-order for after reopening — please confirm availability and delivery time.", ""]
+    : [`Hi Roma! I'd like to order from ${restaurantName}:`, ""];
 
   if (items && items.length > 0) {
     const itemLines = items.map(({ name, quantity, priceCents }) => {

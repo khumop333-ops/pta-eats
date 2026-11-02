@@ -6,6 +6,7 @@ import { CartProvider } from "@/context/CartContext";
 const fromMock = vi.hoisted(() => vi.fn());
 const openWhatsAppMock = vi.hoisted(() => vi.fn());
 const trackMock = vi.hoisted(() => vi.fn());
+const openNowMock = vi.hoisted(() => vi.fn(() => true));
 
 vi.mock("@/integrations/supabase/client", () => ({ supabase: { from: fromMock } }));
 vi.mock("@vercel/analytics", () => ({ track: trackMock }));
@@ -15,7 +16,7 @@ vi.mock("@/lib/whatsapp", async (importOriginal) => ({
 }));
 vi.mock("@/lib/business", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/business")>()),
-  isOpenNow: () => true,
+  isOpenNow: openNowMock,
 }));
 
 import PublicRestaurantPage from "./PublicRestaurantPage";
@@ -65,6 +66,7 @@ const renderPage = () =>
 describe("public restaurant page ordering", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    openNowMock.mockReturnValue(true);
     // A persisted cart survives remounts by design; start each case empty.
     window.localStorage.clear();
     fromMock.mockImplementation((table: string) =>
@@ -129,4 +131,33 @@ describe("public restaurant page ordering", () => {
     fireEvent.click(within(drawer).getByRole("button", { name: "Checkout" }));
     expect(await screen.findByText("WhatsApp checkout")).toBeInTheDocument();
   });
+  it("lets customers add dishes and pre-order when closed", async () => {
+    openNowMock.mockReturnValue(false);
+    renderPage();
+    const add = await screen.findByRole("button", { name: "Add Kota Classic to cart" });
+    expect(add).toBeEnabled();
+    expect(screen.getByText(/confirm availability and delivery after reopening/i)).toBeInTheDocument();
+    fireEvent.click(add);
+    fireEvent.click(screen.getByRole("button", { name: "Pre-order" }));
+    expect(await screen.findByText("WhatsApp checkout")).toBeInTheDocument();
+  });
+
+  it("allows pre-ordering from the cart drawer when closed", async () => {
+    openNowMock.mockReturnValue(false);
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Add Kota Classic to cart" }));
+    fireEvent.click(screen.getByRole("button", { name: /View cart/ }));
+    const drawer = await screen.findByRole("dialog", { name: /Your cart/ });
+    fireEvent.click(within(drawer).getByRole("button", { name: "Pre-order" }));
+    expect(await screen.findByText("WhatsApp checkout")).toBeInTheDocument();
+  });
+
+  it("labels a closed-hours WhatsApp enquiry as a pre-order", async () => {
+    openNowMock.mockReturnValue(false);
+    renderPage();
+    await screen.findByRole("button", { name: "Add Kota Classic to cart" });
+    fireEvent.click(screen.getByRole("button", { name: "Pre-order on WhatsApp" }));
+    expect(decodeURIComponent(openWhatsAppMock.mock.calls[0][0])).toContain("Pre-order for after reopening");
+  });
+
 });

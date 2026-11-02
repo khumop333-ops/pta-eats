@@ -20,4 +20,6 @@ export function isOpenNow(now: Date = JohannesburgNow()): boolean {
   return hour >= OPEN_HOUR && hour < CLOSE_HOUR;
 }
 
+export const PREORDER_MESSAGE = `Roma is currently closed (${OPENING_HOURS_LABEL}). You can send a pre-order now; Roma will confirm availability and delivery after reopening.`;
+
 export const CLOSED_MESSAGE = `Roma is closed — ordering is open ${OPENING_HOURS_LABEL}. Please come back during opening hours.`;

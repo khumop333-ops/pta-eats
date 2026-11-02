@@ -23,7 +23,7 @@ vi.mock("@/lib/business", async (importOriginal) => ({
 vi.mock("sonner", () => ({ toast: { error: toastError, success: toastSuccess } }));
 
 import WhatsAppCheckout from "./WhatsAppCheckout";
-import { CLOSED_MESSAGE, DELIVERY_FEE } from "@/lib/business";
+import { PREORDER_MESSAGE, DELIVERY_FEE } from "@/lib/business";
 
 const CART_ITEMS = [
   {
@@ -238,13 +238,29 @@ describe("WhatsApp checkout", () => {
     expect(screen.getByRole("heading", { name: "Cash on delivery" })).toBeInTheDocument();
   });
 
-  it("blocks sending outside opening hours", () => {
+  it("sends a clearly labelled pre-order outside opening hours", () => {
     openNowMock.mockReturnValue(false);
     seedCart();
     renderCheckout();
 
-    expect(screen.getByRole("alert")).toHaveTextContent(CLOSED_MESSAGE);
-    expect(screen.getByRole("button", { name: "Closed" })).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent(PREORDER_MESSAGE);
+    fillDeliveryDetails();
+    fireEvent.click(screen.getByRole("button", { name: "Send pre-order on WhatsApp" }));
+    const message = decode(openWhatsAppMock.mock.calls[0][0]);
+    expect(message).toContain("I'd like to pre-order from Magwinya Zone");
+    expect(message).toContain("Pre-order for after reopening");
+    expect(message).toContain("Total: R130.00");
+    expect(message).toContain("Delivery to: 123 Church Street, Arcadia");
+    expect(screen.getByText(/confirm availability and delivery time after reopening/i)).toBeInTheDocument();
+  });
+
+  it("checks opening hours again when the order is submitted", () => {
+    seedCart();
+    renderCheckout();
+    fillDeliveryDetails();
+    openNowMock.mockReturnValue(false);
+    submit();
+    expect(decode(openWhatsAppMock.mock.calls[0][0])).toContain("Pre-order for after reopening");
   });
 
   it("shows an empty state instead of a checkout form with nothing in the cart", () => {

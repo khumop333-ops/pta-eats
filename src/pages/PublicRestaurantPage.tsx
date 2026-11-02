@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
 import { buildWhatsAppLink, openWhatsApp, ROMA_WHATSAPP } from "@/lib/whatsapp";
-import { isOpenNow, OPENING_HOURS_LABEL } from "@/lib/business";
+import { isOpenNow, OPENING_HOURS_LABEL, PREORDER_MESSAGE } from "@/lib/business";
 import { useCart } from "@/context/CartContext";
 import StorefrontPageHeader from "@/components/storefront/StorefrontPageHeader";
 import StorefrontFooter from "@/components/storefront/StorefrontFooter";
@@ -232,6 +232,7 @@ const PublicRestaurantPage = () => {
       to: ROMA_WHATSAPP,
       restaurantName: restaurant.name,
       restaurantSlug: restaurant.slug,
+      isPreorder: !isOpenNow(),
       items: items.map((item) => ({
         name: item.name,
         quantity: item.quantity,
@@ -285,6 +286,12 @@ const PublicRestaurantPage = () => {
           </p>
         </div>
       </section>
+
+      {closed ? (
+        <p className="mt-5 rounded-xl border border-primary/20 bg-primary/5 p-4 text-sm text-foreground" role="status">
+          {PREORDER_MESSAGE}
+        </p>
+      ) : null}
 
       <div className="mt-8 flex flex-col gap-8 md:flex-row md:items-start">
         <section className="min-w-0 flex-1" aria-labelledby="menu-heading">
@@ -342,7 +349,6 @@ const PublicRestaurantPage = () => {
                               <Button
                                 size="sm"
                                 onClick={() => addToCart(item)}
-                                disabled={closed}
                                 aria-label={`Add ${item.name} to cart`}
                                 className="gap-1"
                               >
@@ -400,20 +406,18 @@ const PublicRestaurantPage = () => {
                 // delivery fee in the WhatsApp message.
                 <Button
                   onClick={() => navigate("/order")}
-                  disabled={closed}
                   className="shrink-0 gap-2 md:w-full"
                 >
                   <ArrowRight aria-hidden="true" className="h-4 w-4" />
-                  {closed ? "Closed" : "Checkout"}
+                  {closed ? "Pre-order" : "Checkout"}
                 </Button>
               ) : (
                 <Button
                   onClick={handleWhatsAppClick}
-                  disabled={closed}
                   className="shrink-0 gap-2 md:w-full"
                 >
                   <MessageCircle aria-hidden="true" className="h-4 w-4" />
-                  {closed ? "Closed" : "Order on WhatsApp"}
+                  {closed ? "Pre-order on WhatsApp" : "Order on WhatsApp"}
                 </Button>
               )}
             </div>

@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
 import { useCart } from "@/context/CartContext";
-import { DELIVERY_FEE, OPENING_HOURS_LABEL, isOpenNow } from "@/lib/business";
+import { DELIVERY_FEE, PREORDER_MESSAGE, isOpenNow } from "@/lib/business";
 
 const formatRand = (value: number) => `R ${value.toFixed(2)}`;
 
@@ -125,12 +125,12 @@ const CartSheet = ({ open, onOpenChange, restaurantName }: CartSheetProps) => {
               </div>
             </dl>
 
-            <Button className="w-full" size="lg" onClick={goToCheckout} disabled={closed}>
-              {closed ? "Closed" : "Checkout"}
+            <Button className="w-full" size="lg" onClick={goToCheckout}>
+              {closed ? "Pre-order" : "Checkout"}
             </Button>
             <p className="text-center text-xs text-muted-foreground">
               {closed
-                ? `Ordering opens again ${OPENING_HOURS_LABEL}.`
+                ? PREORDER_MESSAGE
                 : "Pay by bank transfer or cash on delivery — no account needed."}
             </p>
           </SheetFooter>

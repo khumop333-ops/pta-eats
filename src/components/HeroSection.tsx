@@ -4,7 +4,7 @@ import { ArrowRight, Search, Store, UtensilsCrossed, X } from "lucide-react";
 import { track } from "@vercel/analytics";
 import { Input } from "@/components/ui/input";
 import StorefrontImage from "./storefront/StorefrontImage";
-import { OPENING_HOURS_LABEL } from "@/lib/business";
+import { OPENING_HOURS_LABEL, isOpenNow } from "@/lib/business";
 import { MIN_QUERY_LENGTH, searchCatalog } from "@/lib/search";
 import { useHomepageRestaurants } from "@/hooks/use-homepage-restaurants";
 import heroImage from "@/assets/hero-food.jpg";
@@ -92,9 +92,18 @@ const HeroSection = () => {
           Local Favourites, Delivered to Your Door.
         </h1>
         <p className="mt-4 text-base text-primary-foreground/85 md:text-lg">
-          Browse the kitchens Roma works with in Pretoria Central, then order by WhatsApp or card —
+          Browse the kitchens Roma works with in Pretoria Central, then order by WhatsApp —
           no app to install.
         </p>
+
+        {!isOpenNow() ? (
+          <div className="mt-5">
+            <p className="mb-3 text-sm text-primary-foreground/90">Closed now? Send a pre-order for confirmation after we reopen.</p>
+            <Link to="/r" className="inline-flex min-h-11 items-center justify-center rounded-full bg-primary px-6 font-semibold text-primary-foreground shadow-lg transition hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              Pre-order now
+            </Link>
+          </div>
+        ) : null}
 
         <form
           ref={formRef}
