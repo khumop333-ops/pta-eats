@@ -1,6 +1,6 @@
 # Roma – Local Food Delivery: Deployment Guide
 
-You are **fully free of Lovable**. This repository is a standard Vite + React + TypeScript + Tailwind + Supabase app that you can host anywhere you like.
+This repository is a **standard Vite + React + TypeScript + Tailwind + Supabase app** with no dependency on any hosted website builder, visual editor, or proprietary preview service. You can host it anywhere you like.
 
 ---
 
@@ -129,7 +129,7 @@ Go to **Supabase Dashboard → Authentication → URL Configuration**:
   - `https://yourdomain.com/**`
   - Keep `http://localhost:8080/**` for local development
 
-This is required for magic-link / OAuth / password-reset emails to send users to your domain instead of Lovable.
+This is required for magic-link / OAuth / password-reset emails to send users to your own domain instead of a third-party dashboard.
 
 ---
 
@@ -179,9 +179,9 @@ The Yoco secret keys (`YOCO_SECRET_KEY`, `YOCO_WEBHOOK_SECRET`) should **NOT** b
 
 ## What I've already cleaned up for you
 
-- Removed the `lovable-tagger` Vite plugin (which was only used for Lovable's in-browser visual editor).
-- Removed the Lovable "brokered preview auth storage" that routed session tokens to Lovable's editor iframe; the app now uses plain `localStorage`, which is the standard for standalone deployments.
-- Removed the signed Lovable/GCS og:image URLs (which expire) from `index.html`. Add a real `public/og-image.jpg` if you want social previews.
+- Removed the build-time tagger plugin that was only used by an in-browser visual editor.
+- Removed the brokered preview auth storage that routed session tokens to an external editor iframe; the app now uses plain `localStorage`, which is the standard for standalone deployments.
+- Removed the signed third-party/GCS `og:image` URLs (which expire) from `index.html`. `public/og-image.jpg` is served from your own domain instead.
 - Fixed `@import` ordering in `src/index.css` so production builds are clean.
 - Vite dev/preview server now binds to `0.0.0.0:8080` with `allowedHosts: true` (runs anywhere).
 - Added `.env.example` template.
