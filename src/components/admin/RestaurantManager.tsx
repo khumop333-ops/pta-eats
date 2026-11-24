@@ -7,6 +7,7 @@ import { Trash2, Pencil, Plus, ChevronDown, ChevronUp, Upload, X } from "lucide-
 import { toast } from "sonner";
 import MenuItemManager from "./MenuItemManager";
 import RestaurantOwnerAssign from "./RestaurantOwnerAssign";
+import { DELIVERY_FEE, getRestaurantDeliveryFee } from "@/lib/business";
 
 interface Restaurant {
   id: number;
@@ -22,6 +23,7 @@ interface Restaurant {
   rating: number;
   image_url: string;
   delivery_time: string;
+  delivery_fee?: number;
   owner_id: string | null;
 }
 
@@ -38,6 +40,7 @@ const emptyForm = {
   rating: "4.0",
   image_url: "",
   delivery_time: "30-40 min",
+  delivery_fee: String(DELIVERY_FEE),
 };
 
 const slugFromName = (name: string) => {
@@ -120,9 +123,16 @@ const RestaurantManager = () => {
       return;
     }
 
+    const parsedDeliveryFee = parseFloat(form.delivery_fee);
+    const computedSlug = form.slug.trim() || slugFromName(form.name);
+    const deliveryFeeValue =
+      Number.isFinite(parsedDeliveryFee) && parsedDeliveryFee >= 0
+        ? parsedDeliveryFee
+        : getRestaurantDeliveryFee({ slug: computedSlug, name: form.name });
+
     const payload = {
       name: form.name,
-      slug: form.slug.trim() || slugFromName(form.name),
+      slug: computedSlug,
       cuisine: form.cuisine,
       description: form.description.trim() || null,
       address_line: form.address_line.trim() || null,
@@ -133,6 +143,7 @@ const RestaurantManager = () => {
       rating: parseFloat(form.rating) || 4.0,
       image_url: form.image_url || "/placeholder.svg",
       delivery_time: form.delivery_time || "30-40 min",
+      delivery_fee: deliveryFeeValue,
     };
 
     if (editingId) {
@@ -153,6 +164,11 @@ const RestaurantManager = () => {
   };
 
   const handleEdit = (r: Restaurant) => {
+    const resolvedFee = getRestaurantDeliveryFee({
+      slug: r.slug,
+      name: r.name,
+      deliveryFee: r.delivery_fee,
+    });
     setEditingId(r.id);
     setForm({
       name: r.name,
@@ -167,6 +183,7 @@ const RestaurantManager = () => {
       rating: String(r.rating),
       image_url: r.image_url,
       delivery_time: r.delivery_time,
+      delivery_fee: String(resolvedFee),
     });
     setPreviewUrl(r.image_url && r.image_url !== "/placeholder.svg" ? r.image_url : null);
   };
@@ -231,6 +248,17 @@ const RestaurantManager = () => {
           <div>
             <Label>Delivery Time</Label>
             <Input value={form.delivery_time} onChange={(e) => setForm({ ...form, delivery_time: e.target.value })} placeholder="e.g. 25-35 min" />
+          </div>
+          <div>
+            <Label>Delivery Fee (R)</Label>
+            <Input
+              value={form.delivery_fee}
+              onChange={(e) => setForm({ ...form, delivery_fee: e.target.value })}
+              type="number"
+              step="0.5"
+              min="0"
+              placeholder="20"
+            />
           </div>
           <div className="sm:col-span-2">
             <Label>Restaurant Photo</Label>
@@ -302,7 +330,11 @@ const RestaurantManager = () => {
                         <span className="ml-2 text-xs font-normal text-primary">• owner assigned</span>
                       )}
                     </p>
-                    <p className="text-sm text-muted-foreground">{r.cuisine} · ⭐ {r.rating} · {r.delivery_time}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {r.cuisine} · ⭐ {r.rating} · {r.delivery_time} · R
+                      {getRestaurantDeliveryFee({ slug: r.slug, name: r.name, deliveryFee: r.delivery_fee }).toFixed(2)}{" "}
+                      delivery
+                    </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-1">

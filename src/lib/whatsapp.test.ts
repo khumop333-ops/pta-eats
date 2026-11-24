@@ -100,6 +100,26 @@ describe("buildWhatsAppLink", () => {
     expect(message).toContain("Total: R65.00");
   });
 
+  it("includes a verified free-delivery promo code and R0 delivery fee when a credit is redeemed", () => {
+    const message = decode(
+      buildWhatsAppLink({
+        to: "27612821819",
+        restaurantName: "Magwinya Zone",
+        restaurantSlug: "magwinya-zone",
+        items: [{ name: "Kota Classic", quantity: 2, priceCents: 4500 }],
+        deliveryFeeCents: 0,
+        originalDeliveryFeeCents: 1500,
+        freeDeliveryCode: "FD-7K3P9X",
+        customer: { name: "Thabo", phone: "072 123 4567", address: "Arcadia" },
+        paymentMethod: "either",
+      }),
+    );
+
+    expect(message).toContain("Subtotal: R90.00");
+    expect(message).toContain("Delivery fee: R0.00 (FREE — Promo FD-7K3P9X, saved R15.00)");
+    expect(message).toContain("Total: R90.00");
+  });
+
   it("omits the 'Sent via' line when the restaurant slug is unknown", () => {
     const message = decode(
       buildWhatsAppLink({

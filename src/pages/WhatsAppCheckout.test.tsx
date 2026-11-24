@@ -10,8 +10,23 @@ const openNowMock = vi.hoisted(() => vi.fn(() => true));
 const toastError = vi.hoisted(() => vi.fn());
 const toastSuccess = vi.hoisted(() => vi.fn());
 const writeText = vi.hoisted(() => vi.fn(() => Promise.resolve()));
+const rpcMock = vi.hoisted(() => vi.fn());
+const useAuthMock = vi.hoisted(() =>
+  vi.fn(() => ({
+    session: null,
+    user: null,
+    profile: null,
+    loading: false,
+    signOut: vi.fn(),
+    refreshProfile: vi.fn(),
+  })),
+);
 
 vi.mock("@vercel/analytics", () => ({ track: trackMock }));
+vi.mock("@/context/AuthContext", () => ({ useAuth: useAuthMock }));
+vi.mock("@/integrations/supabase/client", () => ({
+  supabase: { rpc: rpcMock },
+}));
 vi.mock("@/lib/whatsapp", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/whatsapp")>()),
   openWhatsApp: openWhatsAppMock,
@@ -23,9 +38,9 @@ vi.mock("@/lib/business", async (importOriginal) => ({
 vi.mock("sonner", () => ({ toast: { error: toastError, success: toastSuccess } }));
 
 import WhatsAppCheckout from "./WhatsAppCheckout";
-import { PREORDER_MESSAGE, DELIVERY_FEE } from "@/lib/business";
+import { PREORDER_MESSAGE, DELIVERY_FEE, MAGWINYA_ZONE_DELIVERY_FEE } from "@/lib/business";
 
-const CART_ITEMS = [
+const MAGWINYA_CART_ITEMS = [
   {
     id: "menu-1",
     name: "Kota Classic",
@@ -46,10 +61,22 @@ const CART_ITEMS = [
   },
 ];
 
-const seedCart = () =>
+const SHEAMUS_CART_ITEMS = [
+  {
+    id: "menu-3",
+    name: "Pap & Beef",
+    price: 75,
+    quantity: 1,
+    restaurantId: 8,
+    restaurantName: "Sheamus",
+    restaurantSlug: "sheamus",
+  },
+];
+
+const seedCart = (items = MAGWINYA_CART_ITEMS) =>
   window.localStorage.setItem(
     CART_STORAGE_KEY,
-    JSON.stringify({ savedAt: Date.now(), items: CART_ITEMS }),
+    JSON.stringify({ savedAt: Date.now(), items }),
   );
 
 const renderCheckout = () =>
@@ -59,6 +86,7 @@ const renderCheckout = () =>
         <Routes>
           <Route path="/order" element={<WhatsAppCheckout />} />
           <Route path="/r" element={<p>Restaurant directory</p>} />
+          <Route path="/auth" element={<p>Auth page</p>} />
         </Routes>
       </CartProvider>
     </MemoryRouter>,
@@ -84,6 +112,14 @@ beforeEach(() => {
   window.localStorage.clear();
   openNowMock.mockReturnValue(true);
   openWhatsAppMock.mockReturnValue(true);
+  useAuthMock.mockReturnValue({
+    session: null,
+    user: null,
+    profile: null,
+    loading: false,
+    signOut: vi.fn(),
+    refreshProfile: vi.fn(),
+  });
   // Real bank details, stubbed for the test.
   Object.assign(BANK_TRANSFER_DETAILS, {
     bankName: "Example Bank",
@@ -147,12 +183,13 @@ describe("WhatsApp checkout", () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("Thabo Mokoena 072 123 4567"));
   });
 
-  it("sends one itemised WhatsApp message with the delivery fee, then clears the cart", () => {
-    seedCart();
+  it("sends one itemised WhatsApp message with Magwinya Zone's R15 delivery fee, then clears the cart", () => {
+    seedCart(MAGWINYA_CART_ITEMS);
     renderCheckout();
 
     const summary = screen.getByRole("heading", { name: "Your order" }).closest("section") as HTMLElement;
-    expect(within(summary).getByText("R 130.00")).toBeInTheDocument();
+    expect(within(summary).getByText(`R ${MAGWINYA_ZONE_DELIVERY_FEE.toFixed(2)}`)).toBeInTheDocument();
+    expect(within(summary).getByText("R 125.00")).toBeInTheDocument();
 
     fillDeliveryDetails();
     submit();
@@ -166,8 +203,8 @@ describe("WhatsApp checkout", () => {
     expect(message).toContain("2x Kota Classic — R45.00");
     expect(message).toContain("1x Coke 330ml — R20.00");
     expect(message).toContain("Subtotal: R110.00");
-    expect(message).toContain(`Delivery fee: R${DELIVERY_FEE.toFixed(2)}`);
-    expect(message).toContain("Total: R130.00");
+    expect(message).toContain(`Delivery fee: R${MAGWINYA_ZONE_DELIVERY_FEE.toFixed(2)}`);
+    expect(message).toContain("Total: R125.00");
     expect(message).toContain("Name: Thabo Mokoena");
     expect(message).toContain("Phone: 072 123 4567");
     expect(message).toContain("Delivery to: 123 Church Street, Arcadia");
@@ -189,6 +226,92 @@ describe("WhatsApp checkout", () => {
       link,
     );
     expect(window.localStorage.getItem(CART_STORAGE_KEY)).toBeNull();
+  });
+
+  it("charges the standard R20 delivery fee for other restaurants", () => {
+    seedCart(SHEAMUS_CART_ITEMS);
+    renderCheckout();
+
+    const summary = screen.getByRole("heading", { name: "Your order" }).closest("section") as HTMLElement;
+    expect(within(summary).getByText(`R ${DELIVERY_FEE.toFixed(2)}`)).toBeInTheDocument();
+    expect(within(summary).getByText("R 95.00")).toBeInTheDocument();
+
+    fillDeliveryDetails();
+    submit();
+
+    const message = decode(openWhatsAppMock.mock.calls[0][0]);
+    expect(message).toContain("Subtotal: R75.00");
+    expect(message).toContain("Delivery fee: R20.00");
+    expect(message).toContain("Total: R95.00");
+  });
+
+  it("invites guests to sign up for free first delivery without blocking guest checkout", () => {
+    seedCart(MAGWINYA_CART_ITEMS);
+    renderCheckout();
+
+    expect(screen.getByText(/Sign up & get this delivery for FREE/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Sign up for free delivery" })).toHaveAttribute(
+      "href",
+      "/auth?mode=signup",
+    );
+  });
+
+  it("auto-applies R0 delivery for signed-in users with credits and embeds the verification code", async () => {
+    const refreshProfile = vi.fn();
+    useAuthMock.mockReturnValue({
+      session: { user: { id: "user-1" } } as never,
+      user: { id: "user-1", email: "thabo@example.com" } as never,
+      profile: {
+        full_name: "Thabo Mokoena",
+        phone_number: "072 123 4567",
+        referral_code: "ROMA-7K3P9X",
+        free_delivery_credits: 1,
+        orders_placed_count: 0,
+      },
+      loading: false,
+      signOut: vi.fn(),
+      refreshProfile,
+    });
+    rpcMock.mockResolvedValue({
+      data: {
+        redeemed: true,
+        promo_code: "FD-9X2M4K",
+        saved_amount: 15,
+        remaining_credits: 0,
+        referral_rewarded: false,
+      },
+      error: null,
+    });
+
+    seedCart(MAGWINYA_CART_ITEMS);
+    renderCheckout();
+
+    const summary = screen.getByRole("heading", { name: "Your order" }).closest("section") as HTMLElement;
+    expect(within(summary).getByText("FREE")).toBeInTheDocument();
+    expect(within(summary).getAllByText("R 110.00")).toHaveLength(2);
+
+    // Name and phone are pre-filled from profile; add address and submit.
+    fireEvent.change(screen.getByLabelText("Delivery address"), {
+      target: { value: "123 Church Street, Arcadia" },
+    });
+    submit();
+
+    await waitFor(() => expect(openWhatsAppMock).toHaveBeenCalledTimes(1));
+    expect(rpcMock).toHaveBeenCalledWith("complete_whatsapp_order_promo", {
+      p_restaurant_slug: "magwinya-zone",
+      p_restaurant_name: "Magwinya Zone",
+      p_subtotal: 110,
+      p_standard_delivery_fee: 15,
+      p_customer_name: "Thabo Mokoena",
+      p_customer_phone: "072 123 4567",
+    });
+
+    const message = decode(openWhatsAppMock.mock.calls[0][0]);
+    expect(message).toContain("Subtotal: R110.00");
+    expect(message).toContain("Delivery fee: R0.00 (FREE — Promo FD-9X2M4K, saved R15.00)");
+    expect(message).toContain("Total: R110.00");
+    expect(refreshProfile).toHaveBeenCalled();
+    expect(await screen.findByText(/Verification code FD-9X2M4K/i)).toBeInTheDocument();
   });
 
   it("keeps a tappable link when the browser blocks the WhatsApp window", () => {
@@ -249,7 +372,7 @@ describe("WhatsApp checkout", () => {
     const message = decode(openWhatsAppMock.mock.calls[0][0]);
     expect(message).toContain("I'd like to pre-order from Magwinya Zone");
     expect(message).toContain("Pre-order for after reopening");
-    expect(message).toContain("Total: R130.00");
+    expect(message).toContain("Total: R125.00");
     expect(message).toContain("Delivery to: 123 Church Street, Arcadia");
     expect(screen.getByText(/confirm availability and delivery time after reopening/i)).toBeInTheDocument();
   });

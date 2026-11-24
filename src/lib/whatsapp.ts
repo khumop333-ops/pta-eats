@@ -34,6 +34,10 @@ type BuildWhatsAppLinkOptions = {
    * Subtotal / Delivery fee / Total block for checkout.
    */
   deliveryFeeCents?: number;
+  /** Standard delivery fee before any free-delivery credit was applied. */
+  originalDeliveryFeeCents?: number;
+  /** Verification promo code included when a free-delivery credit is redeemed. */
+  freeDeliveryCode?: string | null;
   customer?: WhatsAppCustomer;
   paymentMethod?: WhatsAppPaymentMethod;
   isPreorder?: boolean;
@@ -54,12 +58,16 @@ const formatRand = (priceCents: number) => (priceCents / 100).toFixed(2);
 
 const clean = (value: string | undefined | null) => value?.trim() ?? "";
 
+export const hasWhatsAppRecipient = (to?: string | null): boolean => Boolean(to || ROMA_WHATSAPP);
+
 export const buildWhatsAppLink = ({
   to,
   restaurantName,
   restaurantSlug,
   items,
   deliveryFeeCents,
+  originalDeliveryFeeCents,
+  freeDeliveryCode,
   customer,
   paymentMethod,
   isPreorder = false,
@@ -89,9 +97,19 @@ export const buildWhatsAppLink = ({
     if (deliveryFeeCents === undefined) {
       messageLines.push(`Estimated: R${formatRand(subtotalCents)}`, "");
     } else {
+      const promoCode = clean(freeDeliveryCode);
+      let deliveryLine = `Delivery fee: R${formatRand(deliveryFeeCents)}`;
+      if (deliveryFeeCents === 0 && promoCode) {
+        const savedText =
+          originalDeliveryFeeCents && originalDeliveryFeeCents > 0
+            ? `, saved R${formatRand(originalDeliveryFeeCents)}`
+            : "";
+        deliveryLine = `Delivery fee: R0.00 (FREE — Promo ${promoCode}${savedText})`;
+      }
+
       messageLines.push(
         `Subtotal: R${formatRand(subtotalCents)}`,
-        `Delivery fee: R${formatRand(deliveryFeeCents)}`,
+        deliveryLine,
         "",
         `Total: R${formatRand(subtotalCents + deliveryFeeCents)}`,
         ""

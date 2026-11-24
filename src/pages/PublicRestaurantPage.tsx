@@ -1,13 +1,13 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ArrowRight, Clock, MapPin, MessageCircle, Plus, ShoppingCart } from "lucide-react";
+import { ArrowLeft, ArrowRight, Clock, MapPin, MessageCircle, Plus, ShoppingCart, Truck } from "lucide-react";
 import { track } from "@vercel/analytics";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
 import { buildWhatsAppLink, openWhatsApp, ROMA_WHATSAPP } from "@/lib/whatsapp";
-import { isOpenNow, OPENING_HOURS_LABEL, PREORDER_MESSAGE } from "@/lib/business";
+import { getRestaurantDeliveryFee, isOpenNow, OPENING_HOURS_LABEL, PREORDER_MESSAGE } from "@/lib/business";
 import { useCart } from "@/context/CartContext";
 import StorefrontPageHeader from "@/components/storefront/StorefrontPageHeader";
 import StorefrontFooter from "@/components/storefront/StorefrontFooter";
@@ -182,6 +182,15 @@ const PublicRestaurantPage = () => {
     .filter((part): part is string => Boolean(part?.trim()))
     .join(", ");
   const closed = !isOpenNow();
+  const restaurantDeliveryFee = getRestaurantDeliveryFee({
+    slug: restaurant.slug,
+    name: restaurant.name,
+    deliveryFee: restaurant.delivery_fee,
+  });
+  const deliveryFeeLabel =
+    restaurantDeliveryFee <= 0
+      ? "Free delivery"
+      : `R${Number.isInteger(restaurantDeliveryFee) ? restaurantDeliveryFee : restaurantDeliveryFee.toFixed(2)} delivery`;
 
   const addToCart = (item: MenuItem) => {
     const result = addItem({
@@ -191,6 +200,7 @@ const PublicRestaurantPage = () => {
       restaurantId: restaurant.id,
       restaurantName: restaurant.name,
       restaurantSlug: restaurant.slug,
+      restaurantDeliveryFee,
     });
 
     if (result === "restaurant-mismatch") {
@@ -207,6 +217,7 @@ const PublicRestaurantPage = () => {
               restaurantId: restaurant.id,
               restaurantName: restaurant.name,
               restaurantSlug: restaurant.slug,
+              restaurantDeliveryFee,
             });
           },
         },
@@ -282,6 +293,9 @@ const PublicRestaurantPage = () => {
             ) : null}
             <span className="flex items-center gap-2">
               <Clock aria-hidden="true" className="h-4 w-4 shrink-0" /> Open {OPENING_HOURS_LABEL}
+            </span>
+            <span className="flex items-center gap-2 font-medium text-white">
+              <Truck aria-hidden="true" className="h-4 w-4 shrink-0" /> {deliveryFeeLabel}
             </span>
           </p>
         </div>

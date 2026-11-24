@@ -14,7 +14,7 @@ import { Separator } from "@/components/ui/separator";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { CreditCard, Banknote } from "lucide-react";
 import { toast } from "sonner";
-import { DELIVERY_FEE, isOpenNow, CLOSED_MESSAGE } from "@/lib/business";
+import { DELIVERY_FEE, getRestaurantDeliveryFee, isOpenNow, CLOSED_MESSAGE } from "@/lib/business";
 import { startYocoCheckout } from "@/lib/payments";
 
 /**
@@ -30,7 +30,7 @@ import { startYocoCheckout } from "@/lib/payments";
 type PaymentMethod = "card" | "cash";
 
 const Checkout = () => {
-  const { items, subtotal, clearCart } = useCart();
+  const { items, subtotal, deliveryFee, clearCart } = useCart();
   const { user, profile, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
@@ -65,7 +65,17 @@ const Checkout = () => {
     }
   }, [profile]);
 
-  const total = subtotal + DELIVERY_FEE;
+  const baseDeliveryFee =
+    typeof deliveryFee === "number"
+      ? deliveryFee
+      : getRestaurantDeliveryFee({
+          slug: items[0]?.restaurantSlug,
+          name: items[0]?.restaurantName,
+          deliveryFee: DELIVERY_FEE,
+        });
+  const hasFreeDelivery = Boolean(user && (profile?.free_delivery_credits ?? 0) > 0 && baseDeliveryFee > 0);
+  const effectiveDeliveryFee = hasFreeDelivery ? 0 : baseDeliveryFee;
+  const total = subtotal + effectiveDeliveryFee;
 
   if (authLoading) {
     return (
@@ -238,7 +248,18 @@ const Checkout = () => {
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Delivery Fee</span>
-                <span>R {DELIVERY_FEE.toFixed(2)}</span>
+                <span>
+                  {hasFreeDelivery ? (
+                    <>
+                      <span className="mr-1.5 line-through text-muted-foreground">
+                        R {baseDeliveryFee.toFixed(2)}
+                      </span>
+                      <span className="font-semibold text-primary">FREE</span>
+                    </>
+                  ) : (
+                    `R ${baseDeliveryFee.toFixed(2)}`
+                  )}
+                </span>
               </div>
 
               <Separator />

@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
+import { getRestaurantDeliveryFee } from "@/lib/business";
 
 export interface CartItem {
   id: string;
@@ -10,6 +11,8 @@ export interface CartItem {
   restaurantName?: string;
   /** Used for the "Sent via roma.africa/r/…" line on the WhatsApp order. */
   restaurantSlug?: string;
+  /** Optional per-restaurant delivery fee override from the restaurant row. */
+  restaurantDeliveryFee?: number;
 }
 
 /**
@@ -26,6 +29,7 @@ interface CartContextType {
   updateQuantity: (id: string, quantity: number) => void;
   clearCart: () => void;
   subtotal: number;
+  deliveryFee: number;
   itemCount: number;
   restaurantId: number | null;
   restaurantName: string | null;
@@ -62,7 +66,8 @@ function isCartItem(value: unknown): value is CartItem {
     Number.isInteger(item.quantity) &&
     (item.quantity as number) > 0 &&
     (item.restaurantName === undefined || typeof item.restaurantName === "string") &&
-    (item.restaurantSlug === undefined || typeof item.restaurantSlug === "string")
+    (item.restaurantSlug === undefined || typeof item.restaurantSlug === "string") &&
+    (item.restaurantDeliveryFee === undefined || isFiniteNonNegative(item.restaurantDeliveryFee))
   );
 }
 
@@ -154,6 +159,12 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
 
   const subtotal = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
   const itemCount = items.reduce((sum, i) => sum + i.quantity, 0);
+  const firstItem = items[0];
+  const deliveryFee = getRestaurantDeliveryFee({
+    slug: firstItem?.restaurantSlug,
+    name: firstItem?.restaurantName,
+    deliveryFee: firstItem?.restaurantDeliveryFee,
+  });
 
   return (
     <CartContext.Provider
@@ -164,10 +175,11 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
         updateQuantity,
         clearCart,
         subtotal,
+        deliveryFee,
         itemCount,
-        restaurantId: items[0]?.restaurantId ?? null,
-        restaurantName: items[0]?.restaurantName ?? null,
-        restaurantSlug: items[0]?.restaurantSlug ?? null,
+        restaurantId: firstItem?.restaurantId ?? null,
+        restaurantName: firstItem?.restaurantName ?? null,
+        restaurantSlug: firstItem?.restaurantSlug ?? null,
       }}
     >
       {children}

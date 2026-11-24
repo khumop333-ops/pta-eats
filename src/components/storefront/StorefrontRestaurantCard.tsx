@@ -1,10 +1,10 @@
 import { Link } from "react-router-dom";
-import { ArrowUpRight, Clock, Star } from "lucide-react";
+import { ArrowUpRight, Clock, Star, Truck } from "lucide-react";
 import StorefrontImage from "./StorefrontImage";
 import { cn } from "@/lib/utils";
 
 type StorefrontRestaurantCardProps = {
-  /** Homepage tiles point at the legacy cart flow, directory tiles at /r/:slug. */
+  /** Homepage and directory tiles point at /r/:slug. */
   to: string;
   name: string;
   imageUrl?: string | null;
@@ -12,16 +12,22 @@ type StorefrontRestaurantCardProps = {
   cuisine?: string | null;
   rating?: number | null;
   deliveryTime?: string | null;
+  deliveryFee?: number | null;
   ctaLabel?: string;
   className?: string;
 };
 
 const fallbackBlurb = "Discover a local favourite in Pretoria Central.";
 
+const formatFeeLabel = (fee: number) => {
+  if (fee <= 0) return "Free delivery";
+  const formatted = Number.isInteger(fee) ? String(fee) : fee.toFixed(2);
+  return `R${formatted} delivery`;
+};
+
 /**
  * One restaurant tile for the whole public storefront, so a card on the
- * homepage and a card in the directory are unmistakably the same thing even
- * though they come from different queries and lead to different flows.
+ * homepage and a card in the directory are unmistakably the same thing.
  */
 const StorefrontRestaurantCard = ({
   to,
@@ -31,10 +37,12 @@ const StorefrontRestaurantCard = ({
   cuisine,
   rating,
   deliveryTime,
+  deliveryFee,
   ctaLabel = "View menu",
   className,
 }: StorefrontRestaurantCardProps) => {
   const description = blurb?.trim() || fallbackBlurb;
+  const hasDeliveryFee = typeof deliveryFee === "number" && Number.isFinite(deliveryFee) && deliveryFee >= 0;
 
   return (
     <Link
@@ -75,12 +83,20 @@ const StorefrontRestaurantCard = ({
           {cuisine?.trim() ? `${cuisine.trim()} · ${description}` : description}
         </p>
 
-        {deliveryTime ? (
+        {deliveryTime || hasDeliveryFee ? (
           <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            <span className="flex items-center gap-1">
-              <Clock aria-hidden="true" className="h-3.5 w-3.5" />
-              {deliveryTime}
-            </span>
+            {deliveryTime ? (
+              <span className="flex items-center gap-1">
+                <Clock aria-hidden="true" className="h-3.5 w-3.5" />
+                {deliveryTime}
+              </span>
+            ) : null}
+            {hasDeliveryFee ? (
+              <span className="flex items-center gap-1 font-medium text-foreground/80">
+                <Truck aria-hidden="true" className="h-3.5 w-3.5 text-primary" />
+                {formatFeeLabel(deliveryFee)}
+              </span>
+            ) : null}
           </p>
         ) : null}
 
