@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { FunctionsHttpError } from "@supabase/supabase-js";
 import { useAdminAuth } from "@/context/AdminAuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -15,8 +15,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { UtensilsCrossed, LogOut, RefreshCw } from "lucide-react";
+import { ExternalLink, LogOut, MessageCircle, RefreshCw, Ticket, UtensilsCrossed } from "lucide-react";
 import { toast } from "sonner";
+import { buildAdminCustomerWhatsAppLink } from "@/lib/directOrder";
 import RestaurantManager from "@/components/admin/RestaurantManager";
 import DelivererManager from "@/components/admin/DelivererManager";
 import PromoReferralManager from "@/components/admin/PromoReferralManager";
@@ -30,6 +31,10 @@ interface OrderItem {
 
 interface Order {
   id: string;
+  order_number?: string | null;
+  receipt_token?: string | null;
+  is_preorder?: boolean;
+  promo_code?: string | null;
   customer_name: string;
   phone_number: string;
   delivery_address: string;
@@ -127,7 +132,17 @@ const AdminDashboard = () => {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "orders" },
-        () => { fetchOrders(); }
+        (payload) => {
+          if (payload.eventType === "INSERT") {
+            const incoming = payload.new as { order_number?: string; restaurant_name?: string };
+            toast.success(
+              `New locked order ${incoming.order_number || ""} ${
+                incoming.restaurant_name ? `from ${incoming.restaurant_name}` : ""
+              }`.trim(),
+            );
+          }
+          void fetchOrders();
+        }
       )
       .subscribe();
 
@@ -292,66 +307,165 @@ const AdminDashboard = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {orders.map((order) => (
-                      <TableRow key={order.id}>
-                        <TableCell className="font-mono text-xs">{order.id.slice(0, 8)}…</TableCell>
-                        <TableCell>
-                          <div>
+                    {orders.map((order) => {
+                      const customerWaLink = buildAdminCustomerWhatsAppLink({
+                        phone: order.phone_number,
+                        customerName: order.customer_name,
+                        orderNumber: order.order_number,
+                        restaurantName: order.restaurant_name,
+                        total: Number(order.total),
+                        receiptToken: order.receipt_token,
+                      });
+                      const paymentLabel =
+                        order.payment_method === "eft_or_cash"
+                          ? "EFT / Cash"
+                          : order.payment_method === "cash"
+                            ? "Cash"
+                            : "Card";
+
+                      return (
+                        <TableRow key={order.id}>
+                          <TableCell className="align-top">
+                            <div className="font-mono text-xs font-bold text-foreground">
+                              {order.order_number || `${order.id.slice(0, 8)}…`}
+                            </div>
+                            <div className="mt-0.5 text-xs font-medium text-muted-foreground">
+                              {order.restaurant_name}
+                            </div>
+                            {order.is_preorder && (
+                              <Badge
+                                variant="outline"
+                                className="mt-1 border-amber-300 bg-amber-50 text-[10px] text-amber-900"
+                              >
+                                PRE-ORDER
+                              </Badge>
+                            )}
+                          </TableCell>
+                          <TableCell className="max-w-[230px] align-top">
                             <p className="font-medium">{order.customer_name}</p>
                             <p className="text-xs text-muted-foreground">{order.phone_number}</p>
-                          </div>
-                        </TableCell>
-                        <TableCell className="max-w-[200px]">
-                          <p className="text-sm truncate">
-                            {order.order_items.map((i) => `${i.quantity}× ${i.item_name}`).join(", ")}
-                          </p>
-                        </TableCell>
-                        <TableCell className="font-semibold">
-                          R {Number(order.total).toFixed(2)}
-                          <div className="mt-1 flex items-center gap-1 text-xs font-normal">
-                            <span className="text-muted-foreground">
-                              {order.payment_method === "cash" ? "Cash" : "Card"}
-                            </span>
-                            <Badge
-                              variant="outline"
-                              className={
-                                order.payment_status === "paid"
-                                  ? "border-green-200 bg-green-100 text-green-800"
+                            <p className="mt-1 text-xs text-foreground/85 break-words">
+                              {order.delivery_address}
+                            </p>
+                            {order.special_instructions && (
+                              <p className="mt-0.5 text-[11px] italic text-muted-foreground break-words">
+                                Note: {order.special_instructions}
+                              </p>
+                            )}
+                          </TableCell>
+                          <TableCell className="max-w-[220px] align-top">
+                            <ul className="space-y-0.5 text-xs">
+                              {order.order_items.map((i) => (
+                                <li key={i.id}>
+                                  <span className="font-semibold">{i.quantity}×</span> {i.item_name}
+                                </li>
+                              ))}
+                            </ul>
+                          </TableCell>
+                          <TableCell className="align-top font-semibold">
+                            R {Number(order.total).toFixed(2)}
+                            <div className="mt-1 flex flex-wrap items-center gap-1 text-xs font-normal">
+                              <span className="text-muted-foreground">{paymentLabel}</span>
+                              <Badge
+                                variant="outline"
+                                className={
+                                  order.payment_status === "paid"
+                                    ? "border-green-200 bg-green-100 text-green-800"
+                                    : order.payment_status === "failed"
+                                      ? "border-destructive/20 bg-destructive/10 text-destructive"
+                                      : ""
+                                }
+                              >
+                                {order.payment_status === "paid"
+                                  ? "Paid"
                                   : order.payment_status === "failed"
-                                    ? "border-destructive/20 bg-destructive/10 text-destructive"
-                                    : ""
-                              }
-                            >
-                              {order.payment_status === "paid" ? "Paid" : order.payment_status === "failed" ? "Failed" : "Unpaid"}
+                                    ? "Failed"
+                                    : "Unpaid"}
+                              </Badge>
+                            </div>
+                            {order.promo_code && (
+                              <div className="mt-1 inline-flex items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-emerald-700">
+                                <Ticket className="h-3 w-3" />
+                                {order.promo_code}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell className="align-top">
+                            <Badge className={statusColors[order.status] || ""} variant="secondary">
+                              {order.status}
                             </Badge>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge className={statusColors[order.status] || ""} variant="secondary">{order.status}</Badge>
-                        </TableCell>
-                        <TableCell>
-                          {order.deliverer_id ? order.assignee_name || order.deliverer_id : "Unassigned"}
-                        </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">
-                          {new Date(order.created_at).toLocaleString("en-ZA")}
-                        </TableCell>
-                        <TableCell className="text-right space-x-2">
-                          <Button size="sm" variant="outline" disabled={assigning || loadingDeliverers} onClick={() => openAssignment(order)}>
-                            Assign deliverer
-                          </Button>
-                          {order.status === "New" && (
-                            <Button size="sm" variant="outline" onClick={() => updateStatus(order.id, "Accepted")}>Accept</Button>
-                          )}
-                          {(order.status === "New" || order.status === "Accepted") && (
-                            <Button size="sm" onClick={() => updateStatus(order.id, "Ready for Pickup/Delivery")}>Ready</Button>
-                          )}
-                          {order.payment_status !== "paid" && (
-                            <Button size="sm" variant="ghost" onClick={() => markPaid(order.id)}>Mark Paid</Button>
-                          )}
-
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                          </TableCell>
+                          <TableCell className="align-top text-xs">
+                            {order.deliverer_id
+                              ? order.assignee_name || order.deliverer_id
+                              : "Unassigned"}
+                          </TableCell>
+                          <TableCell className="align-top text-xs text-muted-foreground">
+                            {new Date(order.created_at).toLocaleString("en-ZA")}
+                          </TableCell>
+                          <TableCell className="align-top text-right">
+                            <div className="flex flex-wrap justify-end gap-1.5">
+                              {order.receipt_token && (
+                                <Button asChild size="sm" variant="ghost" className="gap-1 text-xs">
+                                  <Link to={`/receipt/${order.receipt_token}`} target="_blank">
+                                    <ExternalLink className="h-3.5 w-3.5" />
+                                    Receipt
+                                  </Link>
+                                </Button>
+                              )}
+                              {customerWaLink && (
+                                <Button asChild size="sm" variant="outline" className="gap-1 text-xs">
+                                  <a
+                                    href={customerWaLink}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                  >
+                                    <MessageCircle className="h-3.5 w-3.5" />
+                                    Customer
+                                  </a>
+                                </Button>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={assigning || loadingDeliverers}
+                                onClick={() => openAssignment(order)}
+                              >
+                                Assign deliverer
+                              </Button>
+                              {order.status === "New" && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => updateStatus(order.id, "Accepted")}
+                                >
+                                  Accept
+                                </Button>
+                              )}
+                              {(order.status === "New" || order.status === "Accepted") && (
+                                <Button
+                                  size="sm"
+                                  onClick={() =>
+                                    updateStatus(order.id, "Ready for Pickup/Delivery")
+                                  }
+                                >
+                                  Ready
+                                </Button>
+                              )}
+                              {order.payment_status !== "paid" && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => markPaid(order.id)}
+                                >
+                                  Mark Paid
+                                </Button>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>

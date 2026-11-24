@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import Header from "@/components/Header";
 import { Badge } from "@/components/ui/badge";
-import { Package, Clock, ChevronDown, ChevronUp, CreditCard, Loader2 } from "lucide-react";
+import { Package, Clock, ChevronDown, ChevronUp, CreditCard, ExternalLink, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { paymentErrorMessage, startYocoCheckout } from "@/lib/payments";
 
@@ -18,6 +18,10 @@ interface OrderItem {
 
 interface Order {
   id: string;
+  order_number?: string | null;
+  receipt_token?: string | null;
+  is_preorder?: boolean;
+  promo_code?: string | null;
   restaurant_name: string;
   subtotal: number;
   delivery_fee: number;
@@ -127,7 +131,19 @@ const MyOrders = () => {
                     onClick={() => setExpandedId(expanded ? null : order.id)}
                   >
                     <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-foreground truncate">{order.restaurant_name}</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold text-foreground truncate">{order.restaurant_name}</p>
+                        {order.order_number && (
+                          <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs font-semibold text-muted-foreground">
+                            {order.order_number}
+                          </span>
+                        )}
+                        {order.is_preorder && (
+                          <Badge variant="outline" className="border-amber-300 bg-amber-50 text-[10px] text-amber-900">
+                            PRE-ORDER
+                          </Badge>
+                        )}
+                      </div>
                       <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
                         <Clock className="h-3 w-3" />
                         {new Date(order.created_at).toLocaleString("en-ZA")}
@@ -154,11 +170,19 @@ const MyOrders = () => {
                       ))}
                       <div className="border-t pt-2 mt-2 flex justify-between text-xs text-muted-foreground">
                         <span>Delivery fee</span>
-                        <span>R {Number(order.delivery_fee).toFixed(2)}</span>
+                        <span>
+                          {Number(order.delivery_fee) === 0
+                            ? `FREE${order.promo_code ? ` (${order.promo_code})` : ""}`
+                            : `R ${Number(order.delivery_fee).toFixed(2)}`}
+                        </span>
                       </div>
                       <div className="flex justify-between text-xs">
                         <span className="text-muted-foreground">
-                          {order.payment_method === "cash" ? "Cash on delivery" : "Card payment"}
+                          {order.payment_method === "eft_or_cash"
+                            ? "EFT or Cash on delivery"
+                            : order.payment_method === "cash"
+                              ? "Cash on delivery"
+                              : "Card payment"}
                         </span>
                         <span
                           className={
@@ -175,7 +199,9 @@ const MyOrders = () => {
                               ? "Payment failed"
                               : order.payment_method === "cash"
                                 ? "Pay on delivery"
-                                : "Awaiting payment"}
+                                : order.payment_method === "eft_or_cash"
+                                  ? "EFT or pay driver"
+                                  : "Awaiting payment"}
                         </span>
                       </div>
                       {order.payment_method === "card" && order.payment_status !== "paid" ? (
@@ -191,6 +217,14 @@ const MyOrders = () => {
                             <CreditCard aria-hidden="true" className="h-4 w-4" />
                           )}
                           {payingOrderId === order.id ? "Opening payment…" : "Pay now by card"}
+                        </Button>
+                      ) : null}
+                      {order.receipt_token ? (
+                        <Button asChild size="sm" variant="outline" className="mt-2 w-full gap-2">
+                          <Link to={`/receipt/${order.receipt_token}`}>
+                            <ExternalLink className="h-3.5 w-3.5" />
+                            View Official Locked Receipt
+                          </Link>
                         </Button>
                       ) : null}
                       <p className="text-xs text-muted-foreground">📍 {order.delivery_address}</p>

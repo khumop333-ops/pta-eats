@@ -10,6 +10,7 @@ const openNowMock = vi.hoisted(() => vi.fn(() => true));
 const toastError = vi.hoisted(() => vi.fn());
 const toastSuccess = vi.hoisted(() => vi.fn());
 const writeText = vi.hoisted(() => vi.fn(() => Promise.resolve()));
+const invokeMock = vi.hoisted(() => vi.fn());
 const rpcMock = vi.hoisted(() => vi.fn());
 const useAuthMock = vi.hoisted(() =>
   vi.fn(() => ({
@@ -25,7 +26,10 @@ const useAuthMock = vi.hoisted(() =>
 vi.mock("@vercel/analytics", () => ({ track: trackMock }));
 vi.mock("@/context/AuthContext", () => ({ useAuth: useAuthMock }));
 vi.mock("@/integrations/supabase/client", () => ({
-  supabase: { rpc: rpcMock },
+  supabase: {
+    functions: { invoke: invokeMock },
+    rpc: rpcMock,
+  },
 }));
 vi.mock("@/lib/whatsapp", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/whatsapp")>()),
@@ -42,7 +46,7 @@ import { PREORDER_MESSAGE, DELIVERY_FEE, MAGWINYA_ZONE_DELIVERY_FEE } from "@/li
 
 const MAGWINYA_CART_ITEMS = [
   {
-    id: "menu-1",
+    id: "11111111-1111-4111-8111-111111111111",
     name: "Kota Classic",
     price: 45,
     quantity: 2,
@@ -51,7 +55,7 @@ const MAGWINYA_CART_ITEMS = [
     restaurantSlug: "magwinya-zone",
   },
   {
-    id: "menu-2",
+    id: "22222222-2222-4222-8222-222222222222",
     name: "Coke 330ml",
     price: 20,
     quantity: 1,
@@ -63,7 +67,7 @@ const MAGWINYA_CART_ITEMS = [
 
 const SHEAMUS_CART_ITEMS = [
   {
-    id: "menu-3",
+    id: "33333333-3333-4333-8333-333333333333",
     name: "Pap & Beef",
     price: 75,
     quantity: 1,
@@ -72,6 +76,36 @@ const SHEAMUS_CART_ITEMS = [
     restaurantSlug: "sheamus",
   },
 ];
+
+function buildServerReceipt(overrides: Record<string, unknown> = {}) {
+  return {
+    order_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    order_number: "ROMA-1001",
+    receipt_token: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    customer_name: "Thabo Mokoena",
+    phone_number: "072 123 4567",
+    delivery_address: "123 Church Street, Arcadia",
+    special_instructions: "Ring the buzzer at the gate",
+    restaurant_id: 7,
+    restaurant_name: "Magwinya Zone",
+    restaurant_slug: "magwinya-zone",
+    subtotal: 110,
+    standard_delivery_fee: 15,
+    delivery_fee: 15,
+    total: 125,
+    status: "New",
+    payment_method: "eft_or_cash",
+    payment_status: "pending",
+    promo_code: null,
+    is_preorder: false,
+    created_at: "2026-11-24T10:30:00Z",
+    items: [
+      { id: "item-1", name: "Kota Classic", price: 45, quantity: 2, line_total: 90 },
+      { id: "item-2", name: "Coke 330ml", price: 20, quantity: 1, line_total: 20 },
+    ],
+    ...overrides,
+  };
+}
 
 const seedCart = (items = MAGWINYA_CART_ITEMS) =>
   window.localStorage.setItem(
@@ -85,14 +119,14 @@ const renderCheckout = () =>
       <CartProvider>
         <Routes>
           <Route path="/order" element={<WhatsAppCheckout />} />
+          <Route path="/receipt/:receiptToken" element={<p>Receipt page</p>} />
           <Route path="/r" element={<p>Restaurant directory</p>} />
           <Route path="/auth" element={<p>Auth page</p>} />
+          <Route path="/my-orders" element={<p>My Orders page</p>} />
         </Routes>
       </CartProvider>
     </MemoryRouter>,
   );
-
-const decode = (link: string) => decodeURIComponent(link.split("?text=")[1] ?? "");
 
 const fillDeliveryDetails = () => {
   fireEvent.change(screen.getByLabelText("Full name"), { target: { value: "Thabo Mokoena" } });
@@ -105,13 +139,21 @@ const fillDeliveryDetails = () => {
   });
 };
 
-const submit = () => fireEvent.click(screen.getByRole("button", { name: /Send order on WhatsApp/ }));
+const submit = () => fireEvent.click(screen.getByRole("button", { name: /^Place order$/i }));
 
 beforeEach(() => {
   vi.clearAllMocks();
   window.localStorage.clear();
   openNowMock.mockReturnValue(true);
   openWhatsAppMock.mockReturnValue(true);
+  invokeMock.mockResolvedValue({
+    data: {
+      receipt: buildServerReceipt(),
+      notifications: { live_admin: "delivered", whatsapp_cloud: "sent", email: "sent" },
+    },
+    error: null,
+  });
+  rpcMock.mockResolvedValue({ data: buildServerReceipt(), error: null });
   useAuthMock.mockReturnValue({
     session: null,
     user: null,
@@ -120,7 +162,6 @@ beforeEach(() => {
     signOut: vi.fn(),
     refreshProfile: vi.fn(),
   });
-  // Real bank details, stubbed for the test.
   Object.assign(BANK_TRANSFER_DETAILS, {
     bankName: "Example Bank",
     accountHolder: "Roma Trading (Pty) Ltd",
@@ -143,14 +184,13 @@ afterEach(() => {
   });
 });
 
-describe("WhatsApp checkout", () => {
+describe("Direct locked storefront checkout", () => {
   it("offers bank transfer and cash on delivery without asking the customer to choose", () => {
     seedCart();
     renderCheckout();
 
     expect(screen.getByRole("heading", { name: "Pay by bank transfer" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Cash on delivery" })).toBeInTheDocument();
-    // The owner asked for no payment-method question at checkout.
     expect(screen.queryAllByRole("radio")).toHaveLength(0);
     expect(screen.queryByText(/payment method/i)).not.toBeInTheDocument();
   });
@@ -169,7 +209,7 @@ describe("WhatsApp checkout", () => {
     expect(toastSuccess).toHaveBeenCalledWith("Account number copied");
   });
 
-  it("uses the customer's name and phone as the payment reference", async () => {
+  it("uses the customer's name and phone as the pre-order payment reference", async () => {
     seedCart();
     renderCheckout();
 
@@ -183,7 +223,7 @@ describe("WhatsApp checkout", () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("Thabo Mokoena 072 123 4567"));
   });
 
-  it("sends one itemised WhatsApp message with Magwinya Zone's R15 delivery fee, then clears the cart", () => {
+  it("submits directly to the server with Magwinya Zone's R15 delivery fee, never opens an editable WhatsApp chat, and renders the Official Locked Receipt", async () => {
     seedCart(MAGWINYA_CART_ITEMS);
     renderCheckout();
 
@@ -194,41 +234,77 @@ describe("WhatsApp checkout", () => {
     fillDeliveryDetails();
     submit();
 
-    expect(openWhatsAppMock).toHaveBeenCalledTimes(1);
-    const link = openWhatsAppMock.mock.calls[0][0];
-    const message = decode(link);
-
-    expect(link.startsWith("https://wa.me/")).toBe(true);
-    expect(message).toContain("I'd like to order from Magwinya Zone");
-    expect(message).toContain("2x Kota Classic — R45.00");
-    expect(message).toContain("1x Coke 330ml — R20.00");
-    expect(message).toContain("Subtotal: R110.00");
-    expect(message).toContain(`Delivery fee: R${MAGWINYA_ZONE_DELIVERY_FEE.toFixed(2)}`);
-    expect(message).toContain("Total: R125.00");
-    expect(message).toContain("Name: Thabo Mokoena");
-    expect(message).toContain("Phone: 072 123 4567");
-    expect(message).toContain("Delivery to: 123 Church Street, Arcadia");
-    expect(message).toContain("Notes: Ring the buzzer at the gate");
-    expect(message).toContain("Payment: bank transfer / cash on delivery");
-    expect(message).toContain("Sent via roma.africa/r/magwinya-zone");
-
-    expect(trackMock).toHaveBeenCalledWith("whatsapp_click", {
-      restaurant_slug: "magwinya-zone",
-      source: "checkout",
-      item_count: 3,
-      cart_value: 110,
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(1));
+    expect(invokeMock).toHaveBeenCalledWith("place-direct-order", {
+      body: expect.objectContaining({
+        customerName: "Thabo Mokoena",
+        phone: "072 123 4567",
+        address: "123 Church Street, Arcadia",
+        instructions: "Ring the buzzer at the gate",
+        items: [
+          { menuItemId: "11111111-1111-4111-8111-111111111111", quantity: 2 },
+          { menuItemId: "22222222-2222-4222-8222-222222222222", quantity: 1 },
+        ],
+      }),
     });
 
-    // Confirmation replaces the form and the cart is emptied.
-    expect(screen.getByRole("heading", { name: "Your order is ready" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Message Roma on WhatsApp again/ })).toHaveAttribute(
+    // Zero customer-editable WhatsApp order draft was opened.
+    expect(openWhatsAppMock).not.toHaveBeenCalled();
+
+    expect(
+      await screen.findByRole("heading", { name: "Order sent directly to Roma" }),
+    ).toBeInTheDocument();
+
+    const receiptCard = screen.getByTestId("locked-order-receipt");
+    expect(within(receiptCard).getByText("ROMA-1001")).toBeInTheDocument();
+    expect(within(receiptCard).getByText("Server-Verified · Locked Receipt")).toBeInTheDocument();
+    expect(within(receiptCard).getByText("Magwinya Zone")).toBeInTheDocument();
+    expect(within(receiptCard).getByText("R 125.00")).toBeInTheDocument();
+    expect(within(receiptCard).getByRole("link", { name: /Open receipt page/i })).toHaveAttribute(
       "href",
-      link,
+      "/receipt/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
     );
+
+    // Receipt image & link actions are available; no editable order message link exists.
+    expect(screen.getByRole("button", { name: /Share Receipt Image/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Download PNG/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Copy Receipt Link/i })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Message Roma on WhatsApp/i })).not.toBeInTheDocument();
+
+    // Cart is cleared and analytics recorded.
     expect(window.localStorage.getItem(CART_STORAGE_KEY)).toBeNull();
+    expect(trackMock).toHaveBeenCalledWith(
+      "order_placed",
+      expect.objectContaining({
+        restaurant_slug: "magwinya-zone",
+        order_number: "ROMA-1001",
+        item_count: 3,
+        cart_value: 110,
+        total_value: 125,
+      }),
+    );
   });
 
-  it("charges the standard R20 delivery fee for other restaurants", () => {
+  it("charges the standard R20 delivery fee for other restaurants and falls back cleanly to place_storefront_order RPC if edge function is not yet deployed", async () => {
+    invokeMock.mockResolvedValue({
+      data: null,
+      error: { name: "FunctionsFetchError", message: "Failed to send a request to the Edge Function" },
+    });
+    rpcMock.mockResolvedValue({
+      data: buildServerReceipt({
+        order_number: "ROMA-1002",
+        restaurant_id: 8,
+        restaurant_name: "Sheamus",
+        restaurant_slug: "sheamus",
+        subtotal: 75,
+        standard_delivery_fee: 20,
+        delivery_fee: 20,
+        total: 95,
+        items: [{ id: "item-3", name: "Pap & Beef", price: 75, quantity: 1, line_total: 75 }],
+      }),
+      error: null,
+    });
+
     seedCart(SHEAMUS_CART_ITEMS);
     renderCheckout();
 
@@ -239,10 +315,13 @@ describe("WhatsApp checkout", () => {
     fillDeliveryDetails();
     submit();
 
-    const message = decode(openWhatsAppMock.mock.calls[0][0]);
-    expect(message).toContain("Subtotal: R75.00");
-    expect(message).toContain("Delivery fee: R20.00");
-    expect(message).toContain("Total: R95.00");
+    await waitFor(() => expect(rpcMock).toHaveBeenCalledWith("place_storefront_order", expect.any(Object)));
+    expect(openWhatsAppMock).not.toHaveBeenCalled();
+
+    const receiptCard = await screen.findByTestId("locked-order-receipt");
+    expect(within(receiptCard).getByText("ROMA-1002")).toBeInTheDocument();
+    expect(within(receiptCard).getByText("R 20.00")).toBeInTheDocument();
+    expect(within(receiptCard).getByText("R 95.00")).toBeInTheDocument();
   });
 
   it("invites guests to sign up for free first delivery without blocking guest checkout", () => {
@@ -256,7 +335,7 @@ describe("WhatsApp checkout", () => {
     );
   });
 
-  it("auto-applies R0 delivery for signed-in users with credits and embeds the verification code", async () => {
+  it("auto-applies R0 delivery for signed-in users with credits and locks the FD-XXXXXX verification code onto the official receipt", async () => {
     const refreshProfile = vi.fn();
     useAuthMock.mockReturnValue({
       session: { user: { id: "user-1" } } as never,
@@ -272,13 +351,17 @@ describe("WhatsApp checkout", () => {
       signOut: vi.fn(),
       refreshProfile,
     });
-    rpcMock.mockResolvedValue({
+
+    invokeMock.mockResolvedValue({
       data: {
-        redeemed: true,
-        promo_code: "FD-9X2M4K",
-        saved_amount: 15,
-        remaining_credits: 0,
-        referral_rewarded: false,
+        receipt: buildServerReceipt({
+          order_number: "ROMA-1005",
+          delivery_fee: 0,
+          standard_delivery_fee: 15,
+          total: 110,
+          promo_code: "FD-9X2M4K",
+        }),
+        notifications: { live_admin: "delivered" },
       },
       error: null,
     });
@@ -290,40 +373,19 @@ describe("WhatsApp checkout", () => {
     expect(within(summary).getByText("FREE")).toBeInTheDocument();
     expect(within(summary).getAllByText("R 110.00")).toHaveLength(2);
 
-    // Name and phone are pre-filled from profile; add address and submit.
     fireEvent.change(screen.getByLabelText("Delivery address"), {
       target: { value: "123 Church Street, Arcadia" },
     });
     submit();
 
-    await waitFor(() => expect(openWhatsAppMock).toHaveBeenCalledTimes(1));
-    expect(rpcMock).toHaveBeenCalledWith("complete_whatsapp_order_promo", {
-      p_restaurant_slug: "magwinya-zone",
-      p_restaurant_name: "Magwinya Zone",
-      p_subtotal: 110,
-      p_standard_delivery_fee: 15,
-      p_customer_name: "Thabo Mokoena",
-      p_customer_phone: "072 123 4567",
-    });
-
-    const message = decode(openWhatsAppMock.mock.calls[0][0]);
-    expect(message).toContain("Subtotal: R110.00");
-    expect(message).toContain("Delivery fee: R0.00 (FREE — Promo FD-9X2M4K, saved R15.00)");
-    expect(message).toContain("Total: R110.00");
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(1));
+    expect(openWhatsAppMock).not.toHaveBeenCalled();
     expect(refreshProfile).toHaveBeenCalled();
-    expect(await screen.findByText(/Verification code FD-9X2M4K/i)).toBeInTheDocument();
-  });
 
-  it("keeps a tappable link when the browser blocks the WhatsApp window", () => {
-    openWhatsAppMock.mockReturnValue(false);
-    seedCart();
-    renderCheckout();
-
-    fillDeliveryDetails();
-    submit();
-
-    expect(screen.getByRole("alert")).toHaveTextContent(/blocked the WhatsApp window/i);
-    expect(screen.getByRole("link", { name: /Message Roma on WhatsApp again/ })).toBeInTheDocument();
+    const receiptCard = await screen.findByTestId("locked-order-receipt");
+    expect(within(receiptCard).getByText("FD-9X2M4K")).toBeInTheDocument();
+    expect(within(receiptCard).getByText("FREE")).toBeInTheDocument();
+    expect(screen.getByText(/Free delivery · Code FD-9X2M4K/i)).toBeInTheDocument();
   });
 
   it("requires a name, phone number and address, even if the browser skips validation", () => {
@@ -334,15 +396,15 @@ describe("WhatsApp checkout", () => {
     expect(screen.getByLabelText("Phone number")).toBeRequired();
     expect(screen.getByLabelText("Delivery address")).toBeRequired();
 
-    // In-app browsers submit anyway, so the page must guard in JavaScript too.
     const form = screen.getByLabelText("Full name").closest("form") as HTMLFormElement;
     fireEvent.submit(form);
 
+    expect(invokeMock).not.toHaveBeenCalled();
+    expect(rpcMock).not.toHaveBeenCalled();
     expect(openWhatsAppMock).not.toHaveBeenCalled();
     expect(toastError).toHaveBeenCalledWith(
       "Please add your name, phone number and delivery address so Roma can reach you.",
     );
-    expect(screen.queryByRole("heading", { name: "Your order is ready" })).not.toBeInTheDocument();
   });
 
   it("shows 'bank details coming soon' instead of inventing an account number", () => {
@@ -357,33 +419,34 @@ describe("WhatsApp checkout", () => {
 
     expect(screen.getByText("Bank details coming soon")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Copy account number/ })).not.toBeInTheDocument();
-    // Cash on delivery remains a complete, usable option.
     expect(screen.getByRole("heading", { name: "Cash on delivery" })).toBeInTheDocument();
   });
 
-  it("sends a clearly labelled pre-order outside opening hours", () => {
+  it("places a locked pre-order outside opening hours without opening WhatsApp", async () => {
     openNowMock.mockReturnValue(false);
+    invokeMock.mockResolvedValue({
+      data: {
+        receipt: buildServerReceipt({
+          order_number: "ROMA-1009",
+          is_preorder: true,
+        }),
+        notifications: { live_admin: "delivered" },
+      },
+      error: null,
+    });
+
     seedCart();
     renderCheckout();
 
     expect(screen.getByRole("alert")).toHaveTextContent(PREORDER_MESSAGE);
     fillDeliveryDetails();
-    fireEvent.click(screen.getByRole("button", { name: "Send pre-order on WhatsApp" }));
-    const message = decode(openWhatsAppMock.mock.calls[0][0]);
-    expect(message).toContain("I'd like to pre-order from Magwinya Zone");
-    expect(message).toContain("Pre-order for after reopening");
-    expect(message).toContain("Total: R125.00");
-    expect(message).toContain("Delivery to: 123 Church Street, Arcadia");
-    expect(screen.getByText(/confirm availability and delivery time after reopening/i)).toBeInTheDocument();
-  });
+    fireEvent.click(screen.getByRole("button", { name: "Place pre-order" }));
 
-  it("checks opening hours again when the order is submitted", () => {
-    seedCart();
-    renderCheckout();
-    fillDeliveryDetails();
-    openNowMock.mockReturnValue(false);
-    submit();
-    expect(decode(openWhatsAppMock.mock.calls[0][0])).toContain("Pre-order for after reopening");
+    expect(
+      await screen.findByRole("heading", { name: "Pre-order sent directly to Roma" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Pre-order queued for next 08:00 SAST opening/i)).toBeInTheDocument();
+    expect(openWhatsAppMock).not.toHaveBeenCalled();
   });
 
   it("shows an empty state instead of a checkout form with nothing in the cart", () => {

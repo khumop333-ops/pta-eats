@@ -1,12 +1,11 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ArrowRight, Clock, MapPin, MessageCircle, Plus, ShoppingCart, Truck } from "lucide-react";
+import { ArrowLeft, ArrowRight, Clock, MapPin, Plus, ShoppingCart, Truck } from "lucide-react";
 import { track } from "@vercel/analytics";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
-import { buildWhatsAppLink, openWhatsApp, ROMA_WHATSAPP } from "@/lib/whatsapp";
 import { getRestaurantDeliveryFee, isOpenNow, OPENING_HOURS_LABEL, PREORDER_MESSAGE } from "@/lib/business";
 import { useCart } from "@/context/CartContext";
 import StorefrontPageHeader from "@/components/storefront/StorefrontPageHeader";
@@ -231,28 +230,6 @@ const PublicRestaurantPage = () => {
     });
   };
 
-  const handleWhatsAppClick = () => {
-    track("whatsapp_click", {
-      restaurant_slug: slug ?? restaurant.slug,
-      source: "restaurant_page",
-      item_count: itemCount,
-      cart_value: Number(subtotal.toFixed(2)),
-    });
-
-    const link = buildWhatsAppLink({
-      to: ROMA_WHATSAPP,
-      restaurantName: restaurant.name,
-      restaurantSlug: restaurant.slug,
-      isPreorder: !isOpenNow(),
-      items: items.map((item) => ({
-        name: item.name,
-        quantity: item.quantity,
-        priceCents: Math.round(item.price * 100),
-      })),
-    });
-    openWhatsApp(link);
-  };
-
   return shell(
     <>
       <Link
@@ -415,9 +392,6 @@ const PublicRestaurantPage = () => {
                 </Button>
               ) : null}
               {itemCount > 0 ? (
-                // With food in the cart, checkout is the only way to send an
-                // order: it collects the delivery details and includes the
-                // delivery fee in the WhatsApp message.
                 <Button
                   onClick={() => navigate("/order")}
                   className="shrink-0 gap-2 md:w-full"
@@ -427,11 +401,13 @@ const PublicRestaurantPage = () => {
                 </Button>
               ) : (
                 <Button
-                  onClick={handleWhatsAppClick}
+                  type="button"
+                  variant="secondary"
+                  disabled
                   className="shrink-0 gap-2 md:w-full"
                 >
-                  <MessageCircle aria-hidden="true" className="h-4 w-4" />
-                  {closed ? "Pre-order on WhatsApp" : "Order on WhatsApp"}
+                  <ShoppingCart aria-hidden="true" className="h-4 w-4" />
+                  {closed ? "Add items to pre-order" : "Add items to order"}
                 </Button>
               )}
             </div>

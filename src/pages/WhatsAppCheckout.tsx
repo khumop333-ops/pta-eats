@@ -8,7 +8,9 @@ import {
   Gift,
   Landmark,
   Loader2,
+  Lock,
   MessageCircle,
+  ShieldCheck,
   ShoppingBag,
   Users,
 } from "lucide-react";
@@ -18,32 +20,35 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
-import { supabase } from "@/integrations/supabase/client";
 import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import { PREORDER_MESSAGE, isOpenNow } from "@/lib/business";
-import { buildWhatsAppLink, openWhatsApp } from "@/lib/whatsapp";
+import { openWhatsApp } from "@/lib/whatsapp";
+import {
+  placeDirectLockedOrder,
+  type PlaceDirectOrderResult,
+} from "@/lib/directOrder";
 import {
   buildReferralShareUrl,
   buildReferralWhatsAppInviteLink,
-  parseOrderPromoResult,
 } from "@/lib/referrals";
 import { BANK_TRANSFER_DETAILS, hasBankTransferDetails } from "@/config/bankTransfer";
+import { OrderReceiptCard } from "@/components/storefront/OrderReceiptCard";
 import StorefrontPageHeader from "@/components/storefront/StorefrontPageHeader";
 import StorefrontFooter from "@/components/storefront/StorefrontFooter";
 
 const formatRand = (value: number) => `R ${value.toFixed(2)}`;
 
 /**
- * The live checkout: guest-friendly (no account required), with automatic R0
- * free delivery for signed-in customers who have welcome or referral credits.
+ * Live storefront checkout (/order): guest-friendly and signed-in friendly.
  *
- * The legacy `/checkout` page (Yoco card + cash, writes an order to Supabase)
- * is still routed and still in the repo, but nothing in the storefront links
- * to it any more — it is reachable by direct URL only.
+ * Every order is priced and locked server-side via `placeDirectLockedOrder`
+ * (never via an editable WhatsApp message), dispatched automatically to Roma,
+ * and accompanied by a downloadable/shareable Official Receipt PNG image.
  */
 const WhatsAppCheckout = () => {
-  const { items, subtotal, deliveryFee, itemCount, clearCart, restaurantName, restaurantSlug } = useCart();
+  const { items, subtotal, deliveryFee, itemCount, clearCart, restaurantName, restaurantSlug } =
+    useCart();
   const { user, profile, refreshProfile } = useAuth();
   const [form, setForm] = useState({
     fullName: "",
@@ -52,10 +57,7 @@ const WhatsAppCheckout = () => {
     instructions: "",
   });
   const [submitting, setSubmitting] = useState(false);
-  const [sentLink, setSentLink] = useState<string | null>(null);
-  const [redeemedCode, setRedeemedCode] = useState<string | null>(null);
-  const [wasBlocked, setWasBlocked] = useState(false);
-  const [sentPreorder, setSentPreorder] = useState(false);
+  const [lockedOrder, setLockedOrder] = useState<PlaceDirectOrderResult | null>(null);
   const [copiedLabel, setCopiedLabel] = useState<string | null>(null);
 
   // Pre-fill name and phone from the signed-in customer's profile without
@@ -78,9 +80,14 @@ const WhatsAppCheckout = () => {
   const menuHref = restaurantSlug ? `/r/${restaurantSlug}` : "/r";
   const referralCode = profile?.referral_code?.trim() || "";
 
-  // The customer's own name and number double as the payment reference, so
-  // Roma can match an incoming transfer to a WhatsApp message.
-  const paymentReference = [form.fullName.trim(), form.phone.trim()].filter(Boolean).join(" ");
+  const paymentReference = useMemo(() => {
+    if (lockedOrder?.receipt.order_number) {
+      return [lockedOrder.receipt.order_number, lockedOrder.receipt.customer_name]
+        .filter(Boolean)
+        .join(" · ");
+    }
+    return [form.fullName.trim(), form.phone.trim()].filter(Boolean).join(" ");
+  }, [form.fullName, form.phone, lockedOrder]);
 
   const bankRows = useMemo(
     () => [
@@ -100,59 +107,10 @@ const WhatsAppCheckout = () => {
       setCopiedLabel(label);
       toast.success(`${label} copied`);
     } catch {
-      // Older/in-app browsers: ask the customer to copy by hand rather than
-      // pretending it worked.
-      toast.error(`Couldn't copy automatically — please select the ${label.toLowerCase()} and copy it.`);
+      toast.error(
+        `Couldn't copy automatically — please select the ${label.toLowerCase()} and copy it.`,
+      );
     }
-  };
-
-  const finalizeOrder = (
-    isPreorder: boolean,
-    appliedFeeCents: number,
-    promoCode: string | null,
-  ) => {
-    const link = buildWhatsAppLink({
-      isPreorder,
-      restaurantName: restaurantName ?? "Roma",
-      restaurantSlug,
-      items: items.map((item) => ({
-        name: item.name,
-        quantity: item.quantity,
-        priceCents: Math.round(item.price * 100),
-      })),
-      deliveryFeeCents: appliedFeeCents,
-      originalDeliveryFeeCents: Math.round(deliveryFee * 100),
-      freeDeliveryCode: promoCode,
-      customer: {
-        name: form.fullName,
-        phone: form.phone,
-        address: form.address,
-        notes: form.instructions,
-      },
-      // No payment question is asked: both options stay open in the message.
-      paymentMethod: "either",
-    });
-
-    track("whatsapp_click", {
-      restaurant_slug: restaurantSlug ?? undefined,
-      source: "checkout",
-      item_count: itemCount,
-      cart_value: Number(subtotal.toFixed(2)),
-    });
-
-    if (!link) {
-      toast.error("WhatsApp isn't available right now. Please try again in a moment.");
-      return;
-    }
-
-    const opened = openWhatsApp(link);
-    // Keep the built link: the cart is cleared, so the confirmation screen is
-    // the only route back to the exact message if WhatsApp was blocked.
-    setSentPreorder(isPreorder);
-    setRedeemedCode(promoCode);
-    setSentLink(link);
-    setWasBlocked(!opened);
-    clearCart();
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -160,121 +118,152 @@ const WhatsAppCheckout = () => {
 
     if (items.length === 0 || submitting) return;
 
-    // `required` handles this in normal browsers, but some in-app browsers
-    // (WhatsApp's, Facebook's) submit anyway — and an order without a phone
-    // number or address is useless to the kitchen.
     if (!form.fullName.trim() || !form.phone.trim() || !form.address.trim()) {
       toast.error("Please add your name, phone number and delivery address so Roma can reach you.");
       return;
     }
 
-    const isPreorder = !isOpenNow();
-    const standardFeeCents = Math.round(deliveryFee * 100);
-
-    // Verify WhatsApp is configured before touching any signed-in user's credit.
-    const probeLink = buildWhatsAppLink({
-      isPreorder,
-      restaurantName: restaurantName ?? "Roma",
-      restaurantSlug,
-      deliveryFeeCents: standardFeeCents,
-    });
-    if (!probeLink) {
-      toast.error("WhatsApp isn't available right now. Please try again in a moment.");
-      return;
-    }
-
-    // Guest checkout stays synchronous so the WhatsApp popup runs inside the tap gesture.
-    if (!user) {
-      finalizeOrder(isPreorder, standardFeeCents, null);
-      return;
-    }
-
     setSubmitting(true);
-    let appliedFeeCents = standardFeeCents;
-    let promoCode: string | null = null;
-
     try {
-      if (typeof supabase.rpc === "function") {
-        const { data, error } = await supabase.rpc("complete_whatsapp_order_promo", {
-          p_restaurant_slug: restaurantSlug ?? "",
-          p_restaurant_name: restaurantName ?? "Roma",
-          p_subtotal: Number(subtotal.toFixed(2)),
-          p_standard_delivery_fee: Number(deliveryFee.toFixed(2)),
-          p_customer_name: form.fullName.trim(),
-          p_customer_phone: form.phone.trim(),
-        });
+      const result = await placeDirectLockedOrder({
+        customerName: form.fullName.trim(),
+        phone: form.phone.trim(),
+        address: form.address.trim(),
+        instructions: form.instructions.trim() || null,
+        items: items.map((item) => ({
+          menuItemId: item.id,
+          quantity: item.quantity,
+        })),
+      });
 
-        if (!error) {
-          const parsed = parseOrderPromoResult(data);
-          if (parsed?.redeemed && parsed.promoCode) {
-            appliedFeeCents = 0;
-            promoCode = parsed.promoCode;
-          }
-          void refreshProfile();
-        } else {
-          console.warn("complete_whatsapp_order_promo failed:", error.message);
-        }
+      track("order_placed", {
+        restaurant_slug: result.receipt.restaurant_slug ?? restaurantSlug ?? undefined,
+        order_number: result.receipt.order_number,
+        item_count: itemCount,
+        cart_value: Number(result.receipt.subtotal.toFixed(2)),
+        total_value: Number(result.receipt.total.toFixed(2)),
+        is_preorder: result.receipt.is_preorder,
+      });
+
+      if (user) {
+        void refreshProfile();
       }
+
+      setLockedOrder(result);
+      clearCart();
+      toast.success(`Order ${result.receipt.order_number} sent directly to Roma!`);
     } catch (err) {
-      console.warn("Promo redemption unavailable:", err);
+      const message =
+        err instanceof Error && err.message
+          ? err.message
+          : "Could not submit your order right now. Please try again.";
+      toast.error(message);
     } finally {
       setSubmitting(false);
     }
-
-    finalizeOrder(isPreorder, appliedFeeCents, promoCode);
   };
 
   const shell = (children: ReactNode) => (
     <div className="roma-surface flex min-h-screen flex-col">
       <StorefrontPageHeader backTo={menuHref} backLabel="Back to menu" />
-      <main className="container mx-auto w-full max-w-5xl flex-1 px-4 py-8 md:py-10">{children}</main>
+      <main className="container mx-auto w-full max-w-5xl flex-1 px-4 py-8 md:py-10">
+        {children}
+      </main>
       <StorefrontFooter />
     </div>
   );
 
-  if (sentLink) {
+  if (lockedOrder) {
+    const { receipt } = lockedOrder;
+
     return shell(
-      <div className="mx-auto max-w-xl space-y-5">
+      <div className="mx-auto max-w-xl space-y-6">
         <section className="roma-card p-6 text-center md:p-8" aria-live="polite">
           <CheckCircle2 aria-hidden="true" className="mx-auto h-12 w-12 text-primary" />
-          <h1 className="mt-4 font-display text-2xl font-bold text-foreground">Your order is ready</h1>
-          <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-            We opened WhatsApp with your full order, delivery fee and payment details already filled
-            in. <span className="font-medium text-foreground">Press send there</span> and Roma will{" "}
-            {sentPreorder
-              ? "confirm availability and delivery time after reopening."
-              : "confirm your delivery."}
+          <h1 className="mt-4 font-display text-2xl font-bold text-foreground">
+            {receipt.is_preorder
+              ? "Pre-order sent directly to Roma"
+              : "Order sent directly to Roma"}
+          </h1>
+          <p className="mt-2.5 text-sm leading-relaxed text-muted-foreground">
+            Your order <span className="font-semibold text-foreground">{receipt.order_number}</span>{" "}
+            has been priced and locked on our server and delivered straight to Roma —{" "}
+            {receipt.is_preorder
+              ? "Roma will confirm availability and delivery after reopening at 08:00 SAST."
+              : "no WhatsApp message or manual steps needed."}
           </p>
 
-          {redeemedCode ? (
-            <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3.5 py-1.5 text-xs font-semibold text-primary">
-              <Gift aria-hidden="true" className="h-3.5 w-3.5" />
-              Free delivery applied · Verification code {redeemedCode}
-            </p>
-          ) : null}
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-800 dark:text-emerald-300">
+              <ShieldCheck aria-hidden="true" className="h-3.5 w-3.5" />
+              Sent directly to Roma · Prices locked
+            </span>
 
-          {wasBlocked ? (
-            <p
-              role="alert"
-              className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
-            >
-              Your browser blocked the WhatsApp window. Tap the button below to send your order — the
-              message is already written.
-            </p>
-          ) : null}
-
-          <div className="mt-6 flex flex-col gap-3">
-            <Button asChild size="lg" className="gap-2">
-              <a href={sentLink} target="_blank" rel="noopener noreferrer">
-                <MessageCircle aria-hidden="true" className="h-4 w-4" />
-                Message Roma on WhatsApp again
-              </a>
-            </Button>
-            <Button asChild variant="outline">
-              <Link to="/r">Browse restaurants</Link>
-            </Button>
+            {receipt.promo_code ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+                <Gift aria-hidden="true" className="h-3.5 w-3.5" />
+                Free delivery · Code {receipt.promo_code}
+              </span>
+            ) : null}
           </div>
         </section>
+
+        <OrderReceiptCard receipt={receipt} />
+
+        {bankDetailsReady ? (
+          <section className="roma-card p-5 md:p-6" aria-labelledby="post-order-bank-heading">
+            <h2
+              id="post-order-bank-heading"
+              className="flex items-center gap-2 font-display text-lg font-semibold text-foreground"
+            >
+              <Landmark aria-hidden="true" className="h-5 w-5 text-primary" />
+              Paying by bank transfer (EFT)?
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {receipt.is_preorder
+                ? "Wait for Roma to confirm your pre-order after reopening before transferring payment."
+                : `Transfer ${formatRand(receipt.total)} using ${receipt.order_number} as your reference, and share your Official Receipt PNG alongside your proof of payment.`}
+            </p>
+
+            <dl className="mt-3 divide-y divide-border rounded-xl border bg-muted/40 px-3">
+              {bankRows.map(({ label, value }) => (
+                <div key={label} className="flex items-start justify-between gap-3 py-2.5">
+                  <div className="min-w-0">
+                    <dt className="text-xs uppercase tracking-wide text-muted-foreground">
+                      {label}
+                    </dt>
+                    <dd className="mt-0.5 break-words font-medium text-foreground">{value}</dd>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={!value}
+                    onClick={() => void copyToClipboard(label, value)}
+                    aria-label={`Copy ${label.toLowerCase()}`}
+                    className="shrink-0 gap-1 text-muted-foreground"
+                  >
+                    <Copy aria-hidden="true" className="h-3.5 w-3.5" />
+                    <span className="sr-only sm:not-sr-only">
+                      {copiedLabel === label ? "Copied" : "Copy"}
+                    </span>
+                  </Button>
+                </div>
+              ))}
+            </dl>
+          </section>
+        ) : null}
+
+        <div className="flex flex-wrap gap-3">
+          {user ? (
+            <Button asChild variant="outline" className="flex-1">
+              <Link to="/my-orders">Track in My Orders</Link>
+            </Button>
+          ) : null}
+          <Button asChild variant="outline" className="flex-1">
+            <Link to="/r">Browse restaurants</Link>
+          </Button>
+        </div>
 
         <section className="roma-card border-secondary/20 bg-secondary/5 p-5 md:p-6">
           <div className="flex items-start gap-3">
@@ -351,8 +340,8 @@ const WhatsAppCheckout = () => {
       <h1 className="mt-2 font-display text-3xl font-bold text-foreground">Checkout</h1>
       <p className="mt-2 text-muted-foreground">
         {user
-          ? "Confirm your delivery details below, then send the order to Roma on WhatsApp."
-          : "No account needed. Fill in your details, then send the order to Roma on WhatsApp."}
+          ? "Confirm your delivery details below to send your locked order directly to Roma."
+          : "No account needed. Fill in your details below and your locked order goes straight to Roma."}
       </p>
 
       {!user && deliveryFee > 0 ? (
@@ -364,7 +353,8 @@ const WhatsAppCheckout = () => {
                 Sign up & get this delivery for FREE (save {formatRand(deliveryFee)})
               </p>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                Your basket is saved — sign up in seconds for R0 first delivery, or check out as a guest below.
+                Your basket is saved — sign up in seconds for R0 first delivery, or check out as a
+                guest below.
               </p>
             </div>
           </div>
@@ -385,7 +375,10 @@ const WhatsAppCheckout = () => {
         </p>
       ) : null}
 
-      <form onSubmit={(e) => void handleSubmit(e)} className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+      <form
+        onSubmit={(e) => void handleSubmit(e)}
+        className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]"
+      >
         <div className="space-y-6">
           <section className="roma-card p-5 md:p-6" aria-labelledby="delivery-heading">
             <h2 id="delivery-heading" className="font-display text-xl font-semibold text-foreground">
@@ -461,7 +454,7 @@ const WhatsAppCheckout = () => {
               How you can pay
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Choose whichever suits you — tell Roma in the WhatsApp message and we’ll confirm.
+              Choose whichever suits you — your official locked receipt covers both options.
             </p>
 
             <div className="mt-5" role="group" aria-labelledby="bank-transfer-heading">
@@ -476,15 +469,14 @@ const WhatsAppCheckout = () => {
               {bankDetailsReady ? (
                 <>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    {closed ? "Please wait for Roma to confirm your pre-order before transferring payment." : "Transfer the total, then send proof of payment on WhatsApp."}
+                    {closed
+                      ? "Please wait for Roma to confirm your pre-order before transferring payment."
+                      : "Transfer the locked total, then share your Official Receipt PNG alongside your proof of payment."}
                   </p>
 
                   <dl className="mt-3 divide-y divide-border rounded-xl border bg-muted/40 px-3">
                     {bankRows.map(({ label, value }) => (
-                      <div
-                        key={label}
-                        className="flex items-start justify-between gap-3 py-2.5"
-                      >
+                      <div key={label} className="flex items-start justify-between gap-3 py-2.5">
                         <div className="min-w-0">
                           <dt className="text-xs uppercase tracking-wide text-muted-foreground">
                             {label}
@@ -502,7 +494,7 @@ const WhatsAppCheckout = () => {
                           variant="ghost"
                           size="sm"
                           disabled={!value}
-                          onClick={() => copyToClipboard(label, value)}
+                          onClick={() => void copyToClipboard(label, value)}
                           aria-label={`Copy ${label.toLowerCase()}`}
                           className="shrink-0 gap-1 text-muted-foreground"
                         >
@@ -517,12 +509,10 @@ const WhatsAppCheckout = () => {
                 </>
               ) : (
                 <div className="mt-2 rounded-xl border border-dashed bg-muted/40 p-4">
-                  <p className="text-sm font-medium text-foreground">
-                    Bank details coming soon
-                  </p>
+                  <p className="text-sm font-medium text-foreground">Bank details coming soon</p>
                   <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
                     Roma is still setting up the business account. You can pay cash when your food
-                    arrives, or ask us for the account number in the WhatsApp message.
+                    arrives, or Roma will share EFT details once your order arrives.
                   </p>
                 </div>
               )}
@@ -608,19 +598,19 @@ const WhatsAppCheckout = () => {
               {submitting ? (
                 <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
               ) : (
-                <MessageCircle aria-hidden="true" className="h-4 w-4" />
+                <Lock aria-hidden="true" className="h-4 w-4" />
               )}
               {submitting
-                ? "Applying free delivery…"
+                ? "Locking & sending order…"
                 : closed
-                  ? "Send pre-order on WhatsApp"
-                  : "Send order on WhatsApp"}
+                  ? "Place pre-order"
+                  : "Place order"}
             </Button>
 
             <p className="mt-3 text-center text-xs text-muted-foreground">
               {closed
-                ? "WhatsApp opens with your pre-order written. Send it there; Roma will confirm after reopening."
-                : "WhatsApp opens with your order already written. Nothing is charged until you send it."}
+                ? "Your pre-order is locked on our server and sent straight to Roma for confirmation after reopening."
+                : "Sent directly to Roma with server-locked prices — you will receive an official receipt image immediately."}
             </p>
           </section>
         </aside>

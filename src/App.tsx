@@ -22,6 +22,7 @@ import NotFound from "./pages/NotFound";
 const LegacyRestaurantRedirect = lazyRoute(() => import("./pages/LegacyRestaurantRedirect"));
 // The live, guest-friendly checkout: bank transfer / cash, sent via WhatsApp.
 const WhatsAppCheckout = lazyRoute(() => import("./pages/WhatsAppCheckout"));
+const OrderReceiptPage = lazyRoute(() => import("./pages/OrderReceiptPage"));
 // Dormant: the old card/cash checkout is still routed for direct links, but
 // nothing in the storefront points at it any more.
 const Checkout = lazyRoute(() => import("./pages/Checkout"));
@@ -68,6 +69,7 @@ const App = () => (
                 <Route path="/r/:slug" element={<PublicRestaurantPage />} />
                 <Route path="/restaurant/:id" element={<LegacyRestaurantRedirect />} />
                 <Route path="/order" element={<WhatsAppCheckout />} />
+                <Route path="/receipt/:receiptToken" element={<OrderReceiptPage />} />
                 <Route path="/checkout" element={<Checkout />} />
                 <Route path="/order-confirmation/:orderId" element={<OrderConfirmation />} />
                 <Route path="/auth" element={<AuthPage />} />

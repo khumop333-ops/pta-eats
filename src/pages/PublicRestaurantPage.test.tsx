@@ -46,8 +46,22 @@ const restaurant = {
 };
 
 const menu = [
-  { id: "11111111-1111-4111-8111-111111111111", name: "Kota Classic", description: "Quarter loaf", price: 45, category: "Kota", image_url: null },
-  { id: "22222222-2222-4222-8222-222222222222", name: "Magwinya (6)", description: "Fresh fat cakes", price: 20, category: "Snacks", image_url: null },
+  {
+    id: "11111111-1111-4111-8111-111111111111",
+    name: "Kota Classic",
+    description: "Quarter loaf",
+    price: 45,
+    category: "Kota",
+    image_url: null,
+  },
+  {
+    id: "22222222-2222-4222-8222-222222222222",
+    name: "Magwinya (6)",
+    description: "Fresh fat cakes",
+    price: 20,
+    category: "Snacks",
+    image_url: null,
+  },
 ];
 
 const renderPage = () =>
@@ -57,7 +71,7 @@ const renderPage = () =>
         <Routes>
           <Route path="/r/:slug" element={<PublicRestaurantPage />} />
           <Route path="/checkout" element={<p>Dormant checkout page</p>} />
-          <Route path="/order" element={<p>WhatsApp checkout</p>} />
+          <Route path="/order" element={<p>Direct locked checkout</p>} />
         </Routes>
       </CartProvider>
     </MemoryRouter>,
@@ -67,7 +81,6 @@ describe("public restaurant page ordering", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     openNowMock.mockReturnValue(true);
-    // A persisted cart survives remounts by design; start each case empty.
     window.localStorage.clear();
     fromMock.mockImplementation((table: string) =>
       queryChain(
@@ -94,29 +107,27 @@ describe("public restaurant page ordering", () => {
     );
   });
 
-  it("hands a non-empty cart to the checkout instead of sending a bare WhatsApp message", async () => {
+  it("hands a non-empty cart to direct checkout instead of opening any editable WhatsApp message", async () => {
     renderPage();
 
     fireEvent.click(await screen.findByRole("button", { name: "Add Kota Classic to cart" }));
 
-    // With food in the cart the only order button is Checkout, so the delivery
-    // fee and customer details can never be skipped.
-    expect(screen.queryByRole("button", { name: /Order on WhatsApp/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /WhatsApp/i })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
 
-    expect(await screen.findByText("WhatsApp checkout")).toBeInTheDocument();
+    expect(await screen.findByText("Direct locked checkout")).toBeInTheDocument();
     expect(openWhatsAppMock).not.toHaveBeenCalled();
   });
 
-  it("keeps a plain WhatsApp enquiry when the cart is empty", async () => {
+  it("disables ordering until menu items are added and never opens a free-form WhatsApp chat", async () => {
     renderPage();
 
     await screen.findByRole("button", { name: "Add Kota Classic to cart" });
-    fireEvent.click(screen.getByRole("button", { name: /Order on WhatsApp/ }));
-
-    const link = openWhatsAppMock.mock.calls[0][0] as string;
-    expect(decodeURIComponent(link)).not.toContain("Estimated");
+    const emptyButton = screen.getByRole("button", { name: "Add items to order" });
+    expect(emptyButton).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /Order on WhatsApp/i })).not.toBeInTheDocument();
+    expect(openWhatsAppMock).not.toHaveBeenCalled();
   });
 
   it("opens the cart drawer and hands over to checkout", async () => {
@@ -129,8 +140,9 @@ describe("public restaurant page ordering", () => {
     expect(within(drawer).getByText("Delivery fee")).toBeInTheDocument();
 
     fireEvent.click(within(drawer).getByRole("button", { name: "Checkout" }));
-    expect(await screen.findByText("WhatsApp checkout")).toBeInTheDocument();
+    expect(await screen.findByText("Direct locked checkout")).toBeInTheDocument();
   });
+
   it("lets customers add dishes and pre-order when closed", async () => {
     openNowMock.mockReturnValue(false);
     renderPage();
@@ -139,7 +151,7 @@ describe("public restaurant page ordering", () => {
     expect(screen.getByText(/confirm availability and delivery after reopening/i)).toBeInTheDocument();
     fireEvent.click(add);
     fireEvent.click(screen.getByRole("button", { name: "Pre-order" }));
-    expect(await screen.findByText("WhatsApp checkout")).toBeInTheDocument();
+    expect(await screen.findByText("Direct locked checkout")).toBeInTheDocument();
   });
 
   it("allows pre-ordering from the cart drawer when closed", async () => {
@@ -149,15 +161,15 @@ describe("public restaurant page ordering", () => {
     fireEvent.click(screen.getByRole("button", { name: /View cart/ }));
     const drawer = await screen.findByRole("dialog", { name: /Your cart/ });
     fireEvent.click(within(drawer).getByRole("button", { name: "Pre-order" }));
-    expect(await screen.findByText("WhatsApp checkout")).toBeInTheDocument();
+    expect(await screen.findByText("Direct locked checkout")).toBeInTheDocument();
   });
 
-  it("labels a closed-hours WhatsApp enquiry as a pre-order", async () => {
+  it("shows a disabled pre-order prompt when closed with an empty cart", async () => {
     openNowMock.mockReturnValue(false);
     renderPage();
     await screen.findByRole("button", { name: "Add Kota Classic to cart" });
-    fireEvent.click(screen.getByRole("button", { name: "Pre-order on WhatsApp" }));
-    expect(decodeURIComponent(openWhatsAppMock.mock.calls[0][0])).toContain("Pre-order for after reopening");
+    const emptyPreorderBtn = screen.getByRole("button", { name: "Add items to pre-order" });
+    expect(emptyPreorderBtn).toBeDisabled();
+    expect(openWhatsAppMock).not.toHaveBeenCalled();
   });
-
 });
