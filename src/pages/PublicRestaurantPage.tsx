@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ArrowRight, Clock, MapPin, Plus, ShoppingCart, Truck } from "lucide-react";
+import { ArrowLeft, ArrowRight, Clock, MapPin, Plus, ShoppingCart } from "lucide-react";
 import { track } from "@vercel/analytics";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -186,10 +186,6 @@ const PublicRestaurantPage = () => {
     name: restaurant.name,
     deliveryFee: restaurant.delivery_fee,
   });
-  const deliveryFeeLabel =
-    restaurantDeliveryFee <= 0
-      ? "Free delivery"
-      : `R${Number.isInteger(restaurantDeliveryFee) ? restaurantDeliveryFee : restaurantDeliveryFee.toFixed(2)} delivery`;
 
   const addToCart = (item: MenuItem) => {
     const result = addItem({
@@ -270,9 +266,6 @@ const PublicRestaurantPage = () => {
             ) : null}
             <span className="flex items-center gap-2">
               <Clock aria-hidden="true" className="h-4 w-4 shrink-0" /> Open {OPENING_HOURS_LABEL}
-            </span>
-            <span className="flex items-center gap-2 font-medium text-white">
-              <Truck aria-hidden="true" className="h-4 w-4 shrink-0" /> {deliveryFeeLabel}
             </span>
           </p>
         </div>

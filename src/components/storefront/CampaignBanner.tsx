@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Check, Copy, Gift, MessageCircle, Sparkles, Truck, Users } from "lucide-react";
+import { Check, Copy, Gift, MessageCircle, Truck, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/AuthContext";
@@ -125,11 +125,8 @@ const CampaignBanner = ({ variant = "full" }: CampaignBannerProps) => {
                   : "Want your next delivery on the house? Share your referral link and get 1 free delivery when a friend places their first order."}
               </p>
               <div className="mt-5 flex flex-wrap items-center gap-3">
-                <Button asChild className="gap-2">
-                  <Link to="/r">
-                    <Sparkles aria-hidden="true" className="h-4 w-4" />
-                    Order now
-                  </Link>
+                <Button asChild>
+                  <Link to="/r">Order now</Link>
                 </Button>
                 <Button asChild variant="outline">
                   <Link to="/referrals">View my credits</Link>

@@ -61,7 +61,6 @@ const FeaturedRestaurants = () => {
               cuisine={restaurant.cuisine}
               rating={restaurant.rating}
               deliveryTime={restaurant.deliveryTime}
-              deliveryFee={restaurant.deliveryFee}
             />
           ))}
         </div>

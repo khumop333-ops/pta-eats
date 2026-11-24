@@ -52,6 +52,7 @@ describe("storefront restaurant card", () => {
     expect(screen.getByText("Thuba Rush")).toBeInTheDocument();
     expect(screen.getByText("20-30 min")).toBeInTheDocument();
     expect(screen.getByText(/Grill & BBQ/)).toBeInTheDocument();
+    expect(screen.queryByText(/R\d+.*delivery/i)).not.toBeInTheDocument();
   });
 
   it("uses the fallback blurb when a restaurant has no description", () => {
