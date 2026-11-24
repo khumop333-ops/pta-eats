@@ -154,14 +154,20 @@ export type Database = {
           delivery_address: string
           delivery_fee: number
           id: string
+          is_preorder: boolean
+          notification_status: Json
+          order_number: string | null
           paid_at: string | null
           payment_method: string
           payment_reference: string | null
           payment_status: string
           phone_number: string
+          promo_code: string | null
+          receipt_token: string
           restaurant_id: number
           restaurant_name: string
           special_instructions: string | null
+          standard_delivery_fee: number | null
           status: string
           subtotal: number
           total: number
@@ -175,14 +181,20 @@ export type Database = {
           delivery_address: string
           delivery_fee?: number
           id?: string
+          is_preorder?: boolean
+          notification_status?: Json
+          order_number?: string | null
           paid_at?: string | null
           payment_method?: string
           payment_reference?: string | null
           payment_status?: string
           phone_number: string
+          promo_code?: string | null
+          receipt_token?: string
           restaurant_id: number
           restaurant_name: string
           special_instructions?: string | null
+          standard_delivery_fee?: number | null
           status?: string
           subtotal: number
           total: number
@@ -196,14 +208,20 @@ export type Database = {
           delivery_address?: string
           delivery_fee?: number
           id?: string
+          is_preorder?: boolean
+          notification_status?: Json
+          order_number?: string | null
           paid_at?: string | null
           payment_method?: string
           payment_reference?: string | null
           payment_status?: string
           phone_number?: string
+          promo_code?: string | null
+          receipt_token?: string
           restaurant_id?: number
           restaurant_name?: string
           special_instructions?: string | null
+          standard_delivery_fee?: number | null
           status?: string
           subtotal?: number
           total?: number
@@ -388,6 +406,12 @@ export type Database = {
         }
         Returns: Json
       }
+      get_order_receipt: {
+        Args: {
+          p_receipt_token: string
+        }
+        Returns: Json
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -398,6 +422,16 @@ export type Database = {
       owns_restaurant: {
         Args: { _restaurant_id: number; _user_id: string }
         Returns: boolean
+      }
+      place_storefront_order: {
+        Args: {
+          p_address: string
+          p_customer_name: string
+          p_instructions?: string | null
+          p_items: Json
+          p_phone: string
+        }
+        Returns: Json
       }
       process_user_order_promo: {
         Args: {

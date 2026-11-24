@@ -92,8 +92,8 @@ const HeroSection = () => {
           Local Favourites, Delivered to Your Door.
         </h1>
         <p className="mt-4 text-base text-primary-foreground/85 md:text-lg">
-          Browse the kitchens Roma works with in Pretoria Central, then order by WhatsApp —
-          no app to install.
+          Browse the kitchens Roma works with in Pretoria Central and place your order directly
+          online — no app to install.
         </p>
 
         {!isOpenNow() ? (
