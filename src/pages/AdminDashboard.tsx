@@ -19,6 +19,7 @@ import { UtensilsCrossed, LogOut, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import RestaurantManager from "@/components/admin/RestaurantManager";
 import DelivererManager from "@/components/admin/DelivererManager";
+import PromoReferralManager from "@/components/admin/PromoReferralManager";
 
 interface OrderItem {
   id: string;
@@ -262,6 +263,7 @@ const AdminDashboard = () => {
           <TabsList className="mb-6">
             <TabsTrigger value="orders">Orders</TabsTrigger>
             <TabsTrigger value="restaurants">Restaurants & Menus</TabsTrigger>
+            <TabsTrigger value="promos">Promos & Referrals</TabsTrigger>
             <TabsTrigger value="deliverers">Deliverers</TabsTrigger>
           </TabsList>
 
@@ -359,6 +361,11 @@ const AdminDashboard = () => {
           <TabsContent value="restaurants">
             <h1 className="font-display text-3xl font-bold text-foreground mb-6">Restaurants & Menus</h1>
             <RestaurantManager />
+          </TabsContent>
+
+          <TabsContent value="promos">
+            <h1 className="font-display text-3xl font-bold text-foreground mb-6">Promos & Referrals</h1>
+            <PromoReferralManager />
           </TabsContent>
 
           <TabsContent value="deliverers">

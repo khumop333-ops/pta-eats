@@ -2,8 +2,27 @@ import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { z } from 'npm:zod@3';
 
-// Must match DELIVERY_FEE in src/lib/business.ts (R20, business decision Oct 2026).
+// Must match DELIVERY_FEE and MAGWINYA_ZONE_DELIVERY_FEE in src/lib/business.ts.
 const DELIVERY_FEE = 20;
+const MAGWINYA_ZONE_SLUG = 'magwinya-zone';
+const MAGWINYA_ZONE_DELIVERY_FEE = 15;
+
+function resolveRestaurantDeliveryFee(restaurant: {
+  slug?: string | null;
+  name?: string | null;
+  delivery_fee?: number | string | null;
+}): number {
+  if (restaurant.delivery_fee !== undefined && restaurant.delivery_fee !== null && restaurant.delivery_fee !== '') {
+    const parsed = Number(restaurant.delivery_fee);
+    if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+  }
+  const slug = restaurant.slug?.trim().toLowerCase();
+  const name = restaurant.name?.trim().toLowerCase();
+  if (slug === MAGWINYA_ZONE_SLUG || name === 'magwinya zone') {
+    return MAGWINYA_ZONE_DELIVERY_FEE;
+  }
+  return DELIVERY_FEE;
+}
 
 const BodySchema = z.object({
   customerName: z.string().trim().min(1).max(120),
@@ -71,7 +90,7 @@ Deno.serve(async (req) => {
 
     const { data: restaurant, error: restErr } = await admin
       .from('restaurants')
-      .select('id, name')
+      .select('*')
       .eq('id', restaurantId)
       .maybeSingle();
     if (restErr || !restaurant) return json({ error: 'Restaurant not found' }, 400);
@@ -88,7 +107,34 @@ Deno.serve(async (req) => {
 
     const subtotal = orderItems.reduce((sum, i) => sum + i.item_price * i.quantity, 0);
     const roundedSubtotal = Math.round(subtotal * 100) / 100;
-    const total = Math.round((roundedSubtotal + DELIVERY_FEE) * 100) / 100;
+    const standardDeliveryFee = resolveRestaurantDeliveryFee(restaurant);
+
+    // Apply free-delivery credit (if any) and reward referrer on first order.
+    let appliedDeliveryFee = standardDeliveryFee;
+    let promoCode: string | null = null;
+
+    const { data: promoData, error: promoErr } = await admin.rpc('process_user_order_promo', {
+      p_user_id: userData.user.id,
+      p_restaurant_slug: restaurant.slug ?? '',
+      p_restaurant_name: restaurant.name,
+      p_subtotal: roundedSubtotal,
+      p_standard_delivery_fee: standardDeliveryFee,
+      p_customer_name: body.customerName,
+      p_customer_phone: body.phone,
+      p_order_id: null,
+    });
+
+    if (!promoErr && promoData && typeof promoData === 'object') {
+      const promoRecord = promoData as { redeemed?: boolean; promo_code?: string | null };
+      if (promoRecord.redeemed) {
+        appliedDeliveryFee = 0;
+        promoCode = promoRecord.promo_code ?? null;
+      }
+    } else if (promoErr) {
+      console.warn('create-order: promo processing skipped:', promoErr.message);
+    }
+
+    const total = Math.round((roundedSubtotal + appliedDeliveryFee) * 100) / 100;
 
     const { data: order, error: orderErr } = await admin
       .from('orders')
@@ -100,7 +146,7 @@ Deno.serve(async (req) => {
         restaurant_id: restaurant.id,
         restaurant_name: restaurant.name,
         subtotal: roundedSubtotal,
-        delivery_fee: DELIVERY_FEE,
+        delivery_fee: appliedDeliveryFee,
         total,
         status: 'New',
         user_id: userData.user.id,
@@ -115,6 +161,13 @@ Deno.serve(async (req) => {
       return json({ error: 'Could not place your order' }, 500);
     }
 
+    if (promoCode) {
+      await admin
+        .from('delivery_credit_redemptions')
+        .update({ order_id: order.id })
+        .eq('promo_code', promoCode);
+    }
+
     const { error: itemsErr } = await admin
       .from('order_items')
       .insert(orderItems.map((i) => ({ ...i, order_id: order.id })));
@@ -125,7 +178,13 @@ Deno.serve(async (req) => {
       return json({ error: 'Could not place your order' }, 500);
     }
 
-    return json({ orderId: order.id, subtotal: roundedSubtotal, deliveryFee: DELIVERY_FEE, total });
+    return json({
+      orderId: order.id,
+      subtotal: roundedSubtotal,
+      deliveryFee: appliedDeliveryFee,
+      promoCode,
+      total,
+    });
   } catch (err) {
     console.error('create-order error:', err);
     return json({ error: 'Could not place your order' }, 500);

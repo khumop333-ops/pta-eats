@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
+import { DELIVERY_FEE, getRestaurantDeliveryFee } from "@/lib/business";
 
 type SupabaseRestaurant = Database["public"]["Tables"]["restaurants"]["Row"];
 type SupabaseMenuItem = Database["public"]["Tables"]["menu_items"]["Row"];
@@ -20,6 +21,7 @@ export interface Restaurant {
   rating: number;
   image: string;
   deliveryTime: string;
+  deliveryFee: number;
   menu: MenuItem[];
 }
 
@@ -40,6 +42,7 @@ const fallbackRestaurants: Restaurant[] = [
     rating: 4.8,
     image: "/restaurant-1.jpg",
     deliveryTime: "25-35 min",
+    deliveryFee: DELIVERY_FEE,
     menu: [
       { id: "fallback-mama-pap-wors", name: "Pap & Wors", description: "Traditional pap with boerewors and chakalaka", price: 85, category: "Mains" },
       { id: "fallback-mama-bunny-chow", name: "Bunny Chow", description: "Durban style bunny chow with chicken curry", price: 95, category: "Mains" },
@@ -56,6 +59,7 @@ const fallbackRestaurants: Restaurant[] = [
     rating: 4.6,
     image: "/restaurant-2.jpg",
     deliveryTime: "20-30 min",
+    deliveryFee: DELIVERY_FEE,
     menu: [
       { id: "fallback-grill-tbone", name: "T-Bone Steak 500g", description: "Grilled T-bone with chips and salad", price: 185, category: "Grill" },
       { id: "fallback-grill-wors-roll", name: "Boerewors Roll", description: "Boerewors roll with caramelized onions", price: 65, category: "Grill" },
@@ -72,6 +76,7 @@ const fallbackRestaurants: Restaurant[] = [
     rating: 4.7,
     image: "/restaurant-3.jpg",
     deliveryTime: "30-40 min",
+    deliveryFee: DELIVERY_FEE,
     menu: [
       { id: "fallback-fish-hake-chips", name: "Hake & Chips", description: "Battered hake with chips and tartar sauce", price: 95, category: "Mains" },
       { id: "fallback-fish-calamari", name: "Calamari & Chips", description: "Crispy calamari rings with chips", price: 110, category: "Mains" },
@@ -87,6 +92,7 @@ const fallbackRestaurants: Restaurant[] = [
     rating: 4.9,
     image: "/hero-food.jpg",
     deliveryTime: "20-35 min",
+    deliveryFee: DELIVERY_FEE,
     menu: [
       { id: "fallback-roma-margherita", name: "Margherita Pizza", description: "Tomato, mozzarella, basil", price: 120, category: "Pizza" },
       { id: "fallback-roma-carbonara", name: "Spaghetti Carbonara", description: "Creamy carbonara with bacon", price: 135, category: "Pasta" },
@@ -206,6 +212,11 @@ function mapRestaurant(restaurant: SupabaseRestaurant, items: SupabaseMenuItem[]
     rating: Number(restaurant.rating),
     image: resolveImageUrl(restaurant.image_url),
     deliveryTime: restaurant.delivery_time || "20-30 min",
+    deliveryFee: getRestaurantDeliveryFee({
+      slug: restaurant.slug,
+      name: restaurant.name,
+      deliveryFee: restaurant.delivery_fee,
+    }),
     menu: items.map((item) => ({
       id: item.id,
       name: item.name,

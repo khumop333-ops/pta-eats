@@ -13,7 +13,7 @@ const StorefrontFooter = () => (
       <div className="max-w-sm">
         <p className="font-display text-lg font-bold text-foreground">Roma</p>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-          Delivering local favourites in Pretoria Central.
+          Delivering local favourites in Pretoria Central. Sign up for free first delivery and earn free deliveries when you refer friends.
         </p>
       </div>
 
@@ -23,6 +23,12 @@ const StorefrontFooter = () => (
         </Link>
         <Link to="/r" className="w-fit text-muted-foreground transition hover:text-foreground">
           Browse restaurants
+        </Link>
+        <Link to="/referrals" className="w-fit text-muted-foreground transition hover:text-foreground">
+          Free delivery & referrals
+        </Link>
+        <Link to="/auth?mode=signup" className="w-fit text-muted-foreground transition hover:text-foreground">
+          Sign up
         </Link>
       </nav>
 

@@ -14,6 +14,56 @@ export type Database = {
   }
   public: {
     Tables: {
+      delivery_credit_redemptions: {
+        Row: {
+          created_at: string
+          customer_name: string | null
+          customer_phone: string | null
+          id: string
+          order_id: string | null
+          order_subtotal: number
+          promo_code: string
+          restaurant_name: string
+          restaurant_slug: string | null
+          saved_amount: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          customer_name?: string | null
+          customer_phone?: string | null
+          id?: string
+          order_id?: string | null
+          order_subtotal?: number
+          promo_code: string
+          restaurant_name: string
+          restaurant_slug?: string | null
+          saved_amount: number
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          customer_name?: string | null
+          customer_phone?: string | null
+          id?: string
+          order_id?: string | null
+          order_subtotal?: number
+          promo_code?: string
+          restaurant_name?: string
+          restaurant_slug?: string | null
+          saved_amount?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "delivery_credit_redemptions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       menu_items: {
         Row: {
           category: string
@@ -165,24 +215,66 @@ export type Database = {
       profiles: {
         Row: {
           created_at: string
+          free_delivery_credits: number
           full_name: string | null
           id: string
+          orders_placed_count: number
           phone_number: string | null
+          referral_code: string
+          referred_by_user_id: string | null
           updated_at: string
         }
         Insert: {
           created_at?: string
+          free_delivery_credits?: number
           full_name?: string | null
           id: string
+          orders_placed_count?: number
           phone_number?: string | null
+          referral_code?: string
+          referred_by_user_id?: string | null
           updated_at?: string
         }
         Update: {
           created_at?: string
+          free_delivery_credits?: number
           full_name?: string | null
           id?: string
+          orders_placed_count?: number
           phone_number?: string | null
+          referral_code?: string
+          referred_by_user_id?: string | null
           updated_at?: string
+        }
+        Relationships: []
+      }
+      referrals: {
+        Row: {
+          created_at: string
+          id: string
+          referred_name: string | null
+          referred_user_id: string
+          referrer_id: string
+          rewarded_at: string | null
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          referred_name?: string | null
+          referred_user_id: string
+          referrer_id: string
+          rewarded_at?: string | null
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          referred_name?: string | null
+          referred_user_id?: string
+          referrer_id?: string
+          rewarded_at?: string | null
+          status?: string
         }
         Relationships: []
       }
@@ -193,6 +285,7 @@ export type Database = {
           cover_url: string | null
           created_at: string
           cuisine: string
+          delivery_fee: number
           delivery_time: string
           description: string | null
           id: number
@@ -214,6 +307,7 @@ export type Database = {
           cover_url?: string | null
           created_at?: string
           cuisine: string
+          delivery_fee?: number
           delivery_time?: string
           description?: string | null
           id?: number
@@ -235,6 +329,7 @@ export type Database = {
           cover_url?: string | null
           created_at?: string
           cuisine?: string
+          delivery_fee?: number
           delivery_time?: string
           description?: string | null
           id?: number
@@ -278,6 +373,21 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      apply_referral_code: {
+        Args: { p_referral_code: string }
+        Returns: Json
+      }
+      complete_whatsapp_order_promo: {
+        Args: {
+          p_customer_name?: string | null
+          p_customer_phone?: string | null
+          p_restaurant_name: string
+          p_restaurant_slug: string
+          p_standard_delivery_fee: number
+          p_subtotal: number
+        }
+        Returns: Json
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -288,6 +398,19 @@ export type Database = {
       owns_restaurant: {
         Args: { _restaurant_id: number; _user_id: string }
         Returns: boolean
+      }
+      process_user_order_promo: {
+        Args: {
+          p_customer_name?: string | null
+          p_customer_phone?: string | null
+          p_order_id?: string | null
+          p_restaurant_name: string
+          p_restaurant_slug: string
+          p_standard_delivery_fee: number
+          p_subtotal: number
+          p_user_id: string
+        }
+        Returns: Json
       }
     }
     Enums: {

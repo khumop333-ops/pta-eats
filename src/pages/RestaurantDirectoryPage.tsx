@@ -1,35 +1,21 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
+import { getRestaurantDeliveryFee } from "@/lib/business";
 import StorefrontPageHeader from "@/components/storefront/StorefrontPageHeader";
 import StorefrontFooter from "@/components/storefront/StorefrontFooter";
 import StorefrontRestaurantCard from "@/components/storefront/StorefrontRestaurantCard";
 import StorefrontSectionHeading from "@/components/storefront/StorefrontSectionHeading";
+import CampaignBanner from "@/components/storefront/CampaignBanner";
 import {
   StorefrontLoadingGrid,
   StorefrontNotice,
 } from "@/components/storefront/StorefrontState";
 
-/**
- * Directory tile data. Same table and filters as before — only the display
- * fields the shared card needs were added to the select.
- */
-type RestaurantCardData = Pick<
-  Tables<"restaurants">,
-  | "id"
-  | "name"
-  | "slug"
-  | "cuisine"
-  | "description"
-  | "rating"
-  | "delivery_time"
-  | "cover_url"
-  | "logo_url"
-  | "image_url"
->;
+type RestaurantRow = Tables<"restaurants">;
 
 const RestaurantDirectoryPage = () => {
-  const [restaurants, setRestaurants] = useState<RestaurantCardData[]>([]);
+  const [restaurants, setRestaurants] = useState<RestaurantRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -52,7 +38,7 @@ const RestaurantDirectoryPage = () => {
 
       const { data, error: queryError } = await supabase
         .from("restaurants")
-        .select("id, name, slug, cuisine, description, rating, delivery_time, cover_url, logo_url, image_url")
+        .select("*")
         .eq("is_listed", true)
         .order("name");
 
@@ -85,6 +71,10 @@ const RestaurantDirectoryPage = () => {
           description="Find local favourites in Pretoria Central and browse what’s on the menu."
         />
 
+        <div className="mt-8">
+          <CampaignBanner variant="compact" />
+        </div>
+
         {loading ? (
           <StorefrontLoadingGrid count={6} className="mt-10" />
         ) : error ? (
@@ -116,6 +106,11 @@ const RestaurantDirectoryPage = () => {
                 cuisine={restaurant.cuisine}
                 rating={restaurant.rating}
                 deliveryTime={restaurant.delivery_time}
+                deliveryFee={getRestaurantDeliveryFee({
+                  slug: restaurant.slug,
+                  name: restaurant.name,
+                  deliveryFee: restaurant.delivery_fee,
+                })}
               />
             ))}
           </div>

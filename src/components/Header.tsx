@@ -1,13 +1,16 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { LogOut, User, ClipboardList, Truck, Menu, X, Store } from "lucide-react";
+import { LogOut, User, ClipboardList, Truck, Menu, X, Store, Gift } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
 const Header = () => {
   const { user, profile, signOut } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [open, setOpen] = useState(false);
+
+  const credits = Math.max(0, profile?.free_delivery_credits ?? 0);
 
   const handleSignOut = async () => {
     await signOut();
@@ -32,13 +35,26 @@ const Header = () => {
         </Link>
 
         {/* Desktop nav */}
-        <div className="hidden md:flex items-center gap-3">
+        <div className="hidden md:flex items-center gap-2.5">
           {user ? (
             <>
-              <span className="hidden lg:inline text-sm text-muted-foreground">
+              <span className="hidden xl:inline text-sm text-muted-foreground">
                 <User className="inline h-4 w-4 mr-1" />
                 {profile?.full_name || user.email}
               </span>
+              <Button
+                variant={credits > 0 ? "default" : "ghost"}
+                size="sm"
+                asChild
+                className={credits > 0 ? "gap-1.5" : "gap-1"}
+              >
+                <Link to="/referrals">
+                  <Gift className="h-4 w-4" />
+                  {credits > 0
+                    ? `${credits} Free ${credits === 1 ? "Delivery" : "Deliveries"}`
+                    : "Referrals"}
+                </Link>
+              </Button>
               <Button variant="ghost" size="sm" asChild>
                 <Link to="/my-orders">
                   <ClipboardList className="h-4 w-4 mr-1" /> My Orders
@@ -49,9 +65,21 @@ const Header = () => {
               </Button>
             </>
           ) : (
-            <Button variant="ghost" size="sm" asChild>
-              <Link to="/auth">Login</Link>
-            </Button>
+            <>
+              <Button variant="ghost" size="sm" asChild>
+                <Link to="/referrals">
+                  <Gift className="h-4 w-4 mr-1" /> Referrals
+                </Link>
+              </Button>
+              <Button variant="ghost" size="sm" asChild>
+                <Link to="/auth" state={{ from: location.pathname }}>Login</Link>
+              </Button>
+              <Button size="sm" asChild className="gap-1.5">
+                <Link to="/auth?mode=signup" state={{ from: location.pathname }}>
+                  <Gift className="h-3.5 w-3.5" /> Sign Up · Free Delivery
+                </Link>
+              </Button>
+            </>
           )}
           <Button variant="outline" size="sm" asChild>
             <Link to="/owner/login">Restaurant Login</Link>
@@ -84,6 +112,14 @@ const Header = () => {
                   <User className="inline h-4 w-4 mr-1" />
                   {profile?.full_name || user.email}
                 </div>
+                <Button variant={credits > 0 ? "default" : "ghost"} className="justify-start" asChild onClick={closeMenu}>
+                  <Link to="/referrals">
+                    <Gift className="h-4 w-4 mr-2" />
+                    {credits > 0
+                      ? `Referrals · ${credits} Free ${credits === 1 ? "Delivery" : "Deliveries"}`
+                      : "Referrals & Free Delivery"}
+                  </Link>
+                </Button>
                 <Button variant="ghost" className="justify-start" asChild onClick={closeMenu}>
                   <Link to="/my-orders">
                     <ClipboardList className="h-4 w-4 mr-2" /> My Orders
@@ -94,11 +130,23 @@ const Header = () => {
                 </Button>
               </>
             ) : (
-              <Button variant="ghost" className="justify-start" asChild onClick={closeMenu}>
-                <Link to="/auth">
-                  <User className="h-4 w-4 mr-2" /> Login
-                </Link>
-              </Button>
+              <>
+                <Button className="justify-start mb-1" asChild onClick={closeMenu}>
+                  <Link to="/auth?mode=signup" state={{ from: location.pathname }}>
+                    <Gift className="h-4 w-4 mr-2" /> Sign Up · Free 1st Delivery
+                  </Link>
+                </Button>
+                <Button variant="ghost" className="justify-start" asChild onClick={closeMenu}>
+                  <Link to="/referrals">
+                    <Gift className="h-4 w-4 mr-2" /> Referral Program
+                  </Link>
+                </Button>
+                <Button variant="ghost" className="justify-start" asChild onClick={closeMenu}>
+                  <Link to="/auth" state={{ from: location.pathname }}>
+                    <User className="h-4 w-4 mr-2" /> Login
+                  </Link>
+                </Button>
+              </>
             )}
             <Button variant="ghost" className="justify-start" asChild onClick={closeMenu}>
               <Link to="/owner/login">

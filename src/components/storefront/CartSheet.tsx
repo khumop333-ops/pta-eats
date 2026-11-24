@@ -1,6 +1,6 @@
 import { useMemo } from "react";
-import { useNavigate } from "react-router-dom";
-import { Minus, Plus, ShoppingCart, Trash2 } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { Gift, Minus, Plus, ShoppingCart, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -12,7 +12,8 @@ import {
 } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
 import { useCart } from "@/context/CartContext";
-import { DELIVERY_FEE, PREORDER_MESSAGE, isOpenNow } from "@/lib/business";
+import { useAuth } from "@/context/AuthContext";
+import { PREORDER_MESSAGE, isOpenNow } from "@/lib/business";
 
 const formatRand = (value: number) => `R ${value.toFixed(2)}`;
 
@@ -29,10 +30,15 @@ type CartSheetProps = {
  * basket UI to stay in sync.
  */
 const CartSheet = ({ open, onOpenChange, restaurantName }: CartSheetProps) => {
-  const { items, updateQuantity, removeItem, subtotal, itemCount } = useCart();
+  const { items, updateQuantity, removeItem, subtotal, deliveryFee, itemCount } = useCart();
+  const { user, profile } = useAuth();
   const navigate = useNavigate();
   const closed = !isOpenNow();
-  const total = useMemo(() => subtotal + DELIVERY_FEE, [subtotal]);
+
+  const credits = Math.max(0, profile?.free_delivery_credits ?? 0);
+  const hasFreeDelivery = Boolean(user && credits > 0 && deliveryFee > 0);
+  const effectiveDeliveryFee = hasFreeDelivery ? 0 : deliveryFee;
+  const total = useMemo(() => subtotal + effectiveDeliveryFee, [subtotal, effectiveDeliveryFee]);
 
   const goToCheckout = () => {
     onOpenChange(false);
@@ -109,6 +115,23 @@ const CartSheet = ({ open, onOpenChange, restaurantName }: CartSheetProps) => {
 
         {items.length > 0 ? (
           <SheetFooter className="border-t p-5">
+            {!user && deliveryFee > 0 ? (
+              <div className="mb-2 flex items-center justify-between gap-2 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-xs">
+                <span className="flex items-center gap-1.5 text-foreground">
+                  <Gift aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-primary" />
+                  First delivery FREE when you sign up
+                </span>
+                <Link
+                  to="/auth?mode=signup"
+                  state={{ from: "/order" }}
+                  onClick={() => onOpenChange(false)}
+                  className="shrink-0 font-semibold text-primary hover:underline"
+                >
+                  Sign up
+                </Link>
+              </div>
+            ) : null}
+
             <dl className="w-full space-y-1 text-sm">
               <div className="flex justify-between">
                 <dt className="text-muted-foreground">Subtotal</dt>
@@ -116,7 +139,18 @@ const CartSheet = ({ open, onOpenChange, restaurantName }: CartSheetProps) => {
               </div>
               <div className="flex justify-between">
                 <dt className="text-muted-foreground">Delivery fee</dt>
-                <dd>{formatRand(DELIVERY_FEE)}</dd>
+                <dd>
+                  {hasFreeDelivery ? (
+                    <span>
+                      <span className="mr-1.5 line-through text-muted-foreground">
+                        {formatRand(deliveryFee)}
+                      </span>
+                      <span className="font-semibold text-primary">FREE</span>
+                    </span>
+                  ) : (
+                    formatRand(deliveryFee)
+                  )}
+                </dd>
               </div>
               <Separator className="my-2" />
               <div className="flex justify-between text-base font-bold">
@@ -131,7 +165,9 @@ const CartSheet = ({ open, onOpenChange, restaurantName }: CartSheetProps) => {
             <p className="text-center text-xs text-muted-foreground">
               {closed
                 ? PREORDER_MESSAGE
-                : "Pay by bank transfer or cash on delivery — no account needed."}
+                : hasFreeDelivery
+                  ? "Your free delivery credit will be applied automatically."
+                  : "Pay by bank transfer or cash on delivery — no account needed."}
             </p>
           </SheetFooter>
         ) : null}

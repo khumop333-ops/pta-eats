@@ -1,5 +1,6 @@
 import Header from "@/components/Header";
 import HeroSection from "@/components/HeroSection";
+import CampaignBanner from "@/components/storefront/CampaignBanner";
 import FeaturedRestaurants from "@/components/FeaturedRestaurants";
 import StorefrontFooter from "@/components/storefront/StorefrontFooter";
 
@@ -9,6 +10,7 @@ const Index = () => {
       <Header />
       <main>
         <HeroSection />
+        <CampaignBanner />
         <FeaturedRestaurants />
       </main>
       <StorefrontFooter />
