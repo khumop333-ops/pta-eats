@@ -35,6 +35,7 @@ vi.mock("sonner", () => ({
 
 import ReferralsPage from "./ReferralsPage";
 import AuthPage from "./AuthPage";
+import CampaignBanner from "@/components/storefront/CampaignBanner";
 
 function queryChain(result: unknown) {
   const chain: Record<string, unknown> = {};
@@ -207,5 +208,30 @@ describe("ReferralsPage & referral sign-up campaign", () => {
       );
     });
     expect(mocks.toastSuccess).toHaveBeenCalledWith("Welcome to Roma! Your first delivery is FREE.");
+  });
+
+  it("renders 'Order now' on CampaignBanner without any stars icon", () => {
+    mocks.useAuth.mockReturnValue({
+      user: { id: "user-1", email: "thabo@example.com" },
+      profile: {
+        full_name: "Thabo Mokoena",
+        referral_code: "ROMA-7K3P9X",
+        free_delivery_credits: 1,
+        orders_placed_count: 0,
+      },
+      loading: false,
+      signOut: vi.fn(),
+      refreshProfile: vi.fn(),
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <CampaignBanner />
+      </MemoryRouter>,
+    );
+
+    const orderNowLink = screen.getByRole("link", { name: "Order now" });
+    expect(orderNowLink).toHaveAttribute("href", "/r");
+    expect(orderNowLink.querySelector("svg")).toBeNull();
   });
 });

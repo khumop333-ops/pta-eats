@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
-import { getRestaurantDeliveryFee } from "@/lib/business";
 import StorefrontPageHeader from "@/components/storefront/StorefrontPageHeader";
 import StorefrontFooter from "@/components/storefront/StorefrontFooter";
 import StorefrontRestaurantCard from "@/components/storefront/StorefrontRestaurantCard";
@@ -106,11 +105,6 @@ const RestaurantDirectoryPage = () => {
                 cuisine={restaurant.cuisine}
                 rating={restaurant.rating}
                 deliveryTime={restaurant.delivery_time}
-                deliveryFee={getRestaurantDeliveryFee({
-                  slug: restaurant.slug,
-                  name: restaurant.name,
-                  deliveryFee: restaurant.delivery_fee,
-                })}
               />
             ))}
           </div>
